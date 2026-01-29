@@ -1,0 +1,14 @@
+[2026-01-29 12:07:33] Starting training with args: Namespace(csv_path='dataset/fitzpatrick17k_cleaned.csv', image_dir='dataset/images', batch_size=64, epochs=200, lr=0.0002, beta1=0.5, beta2=0.999, latent_dim=100, embedding_dim=50, ngf=64, ndf=64, label_smoothing=0.1, noise_std=0.1, noise_decay=0.995, output_dir='outputs', checkpoint_interval=10, sample_interval=5, num_samples=16, resume=None, num_workers=4, device=None)
+[2026-01-29 12:07:33] Using device: mps
+[2026-01-29 12:07:33] Loading dataset...
+[2026-01-29 12:07:34] Creating models...
+[2026-01-29 12:07:34] Starting training for 200 epochs...
+[2026-01-29 12:08:50] Epoch [1/200] D_loss: 1.2692, G_loss: 3.4889, D(x): 0.592, D(G(z)): 0.306, Time: 76.02s
+[2026-01-29 12:10:04] Epoch [2/200] D_loss: 1.1315, G_loss: 2.9238, D(x): 0.613, D(G(z)): 0.288, Time: 74.22s
+[2026-01-29 12:11:18] Epoch [3/200] D_loss: 1.1176, G_loss: 2.5110, D(x): 0.603, D(G(z)): 0.294, Time: 74.32s
+[2026-01-29 12:12:33] Epoch [4/200] D_loss: 1.1300, G_loss: 2.4318, D(x): 0.601, D(G(z)): 0.297, Time: 74.70s
+[2026-01-29 12:13:49] Epoch [5/200] D_loss: 1.0519, G_loss: 2.4731, D(x): 0.620, D(G(z)): 0.276, Time: 75.76s
+[2026-01-29 12:15:04] Epoch [6/200] D_loss: 1.0726, G_loss: 2.2166, D(x): 0.604, D(G(z)): 0.290, Time: 74.80s
+[2026-01-29 12:16:19] Epoch [7/200] D_loss: 1.0087, G_loss: 2.3268, D(x): 0.627, D(G(z)): 0.270, Time: 74.71s
+[2026-01-29 12:17:34] Epoch [8/200] D_loss: 0.9294, G_loss: 2.7816, D(x): 0.659, D(G(z)): 0.236, Time: 74.92s
+[2026-01-29 12:18:48] Epoch [9/200] D_loss: 0.9590, G_loss: 2.5560, D(x): 0.649, D(G(z)): 0.246, Time: 74.41s

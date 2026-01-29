@@ -1,0 +1,211 @@
+import os
+import argparse
+import pandas as pd
+import torch
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
+from PIL import Image
+from typing import Tuple, Optional
+
+
+# Label encoding mappings
+FITZPATRICK_ENCODING = {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5}
+LESION_TYPE_ENCODING = {"benign": 0, "malignant": 1, "non-neoplastic": 2}
+
+# Reverse mappings for decoding
+FITZPATRICK_DECODING = {v: k for k, v in FITZPATRICK_ENCODING.items()}
+LESION_TYPE_DECODING = {v: k for k, v in LESION_TYPE_ENCODING.items()}
+
+# Number of classes
+NUM_SKIN_TONES = 6
+NUM_LESION_TYPES = 3
+
+
+class SkinLesionDataset(Dataset):
+    """
+    Args:
+        csv_path: Path to the CSV file containing image metadata
+        image_dir: Directory containing the image files
+        transform: Optional torchvision transforms to apply
+        filter_skin_tones: Optional list of skin tones to include (1-6)
+        filter_lesion_types: Optional list of lesion types to include
+    """
+    
+    def __init__(
+        self,
+        csv_path: str,
+        image_dir: str,
+        transform: Optional[transforms.Compose] = None,
+        filter_skin_tones: Optional[list] = None,
+        filter_lesion_types: Optional[list] = None
+    ):
+        self.image_dir = image_dir
+        
+        # Load and clean the CSV data
+        self.df = pd.read_csv(csv_path)
+        
+        # Remove invalid fitzpatrick_scale values (-1)
+        self.df = self.df[self.df["fitzpatrick_scale"] != -1].reset_index(drop=True)
+        
+        # Apply optional filters
+        if filter_skin_tones is not None:
+            self.df = self.df[
+                self.df["fitzpatrick_scale"].isin(filter_skin_tones)
+            ].reset_index(drop=True)
+            
+        if filter_lesion_types is not None:
+            self.df = self.df[
+                self.df["three_partition_label"].isin(filter_lesion_types)
+            ].reset_index(drop=True)
+        
+        # Verify images exist
+        self._verify_images()
+        
+        # Default transform: resize to 64x64, normalize to [-1, 1]
+        if transform is None:
+            self.transform = transforms.Compose([
+                transforms.Resize((64, 64)),
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            ])
+        else:
+            self.transform = transform
+    
+    def _verify_images(self) -> None:
+        """Verify that image files exist and filter out missing ones."""
+        valid_indices = []
+        for idx, row in self.df.iterrows():
+            img_path = os.path.join(self.image_dir, f"{row['md5hash']}.jpg")
+            if os.path.exists(img_path):
+                valid_indices.append(idx)
+        
+        if len(valid_indices) < len(self.df):
+            print(f"Warning: {len(self.df) - len(valid_indices)} images not found. "
+                  f"Using {len(valid_indices)} available images.")
+            self.df = self.df.loc[valid_indices].reset_index(drop=True)
+    
+    def __len__(self) -> int:
+        return len(self.df)
+    
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Get a sample from the dataset.
+        
+        Args:
+            idx: Index of the sample
+            
+        Returns:
+            Tuple of (image_tensor, skin_tone_label, lesion_type_label)
+        """
+        row = self.df.iloc[idx]
+        
+        # Load image
+        img_path = os.path.join(self.image_dir, f"{row['md5hash']}.jpg")
+        image = Image.open(img_path).convert("RGB")
+        
+        # Apply transforms
+        image = self.transform(image)
+        
+        # Encode labels
+        skin_tone = torch.tensor(FITZPATRICK_ENCODING[row["fitzpatrick_scale"]], 
+                                 dtype=torch.long)
+        lesion_type = torch.tensor(LESION_TYPE_ENCODING[row["three_partition_label"]], 
+                                   dtype=torch.long)
+        
+        return image, skin_tone, lesion_type
+    
+def get_dataloader(
+    csv_path: str,
+    image_dir: str,
+    batch_size: int = 64,
+    shuffle: bool = True,
+    num_workers: int = 4,
+    transform: Optional[transforms.Compose] = None,
+    filter_skin_tones: Optional[list] = None,
+    filter_lesion_types: Optional[list] = None,
+    pin_memory: bool = True
+) -> Tuple[DataLoader, SkinLesionDataset]:
+    """
+    Create a DataLoader for the skin lesion dataset.
+    
+    Args:
+        csv_path: Path to the CSV file
+        image_dir: Directory containing images
+        batch_size: Batch size for the DataLoader
+        shuffle: Whether to shuffle the data
+        num_workers: Number of worker processes for data loading
+        transform: Optional custom transforms
+        filter_skin_tones: Optional list of skin tones to include
+        filter_lesion_types: Optional list of lesion types to include
+        pin_memory: Whether to pin memory for faster GPU transfer
+        
+    Returns:
+        Tuple of (DataLoader, Dataset)
+    """
+    dataset = SkinLesionDataset(
+        csv_path=csv_path,
+        image_dir=image_dir,
+        transform=transform,
+        filter_skin_tones=filter_skin_tones,
+        filter_lesion_types=filter_lesion_types
+    )
+    
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        drop_last=True  # Drop last incomplete batch for stable training
+    )
+    
+    return dataloader, dataset
+
+
+def get_augmented_transform(image_size: int = 64) -> transforms.Compose:
+    """
+    Get augmented transforms for training.
+    
+    Args:
+        image_size: Target image size
+        
+    Returns:
+        Composed transforms with augmentation
+    """
+    return transforms.Compose([
+        transforms.Resize((image_size, image_size)),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomVerticalFlip(p=0.5),
+        transforms.RandomRotation(degrees=15),
+        transforms.ToTensor(),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    ])
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Test data loading")
+    parser.add_argument("--csv_path", type=str, 
+                        default="dataset/fitzpatrick17k_cleaned.csv")
+    parser.add_argument("--image_dir", type=str, 
+                        default="dataset/images")
+    parser.add_argument("--batch_size", type=int, default=64)
+    args = parser.parse_args()
+    
+    print("Loading dataset...")
+    dataloader, dataset = get_dataloader(
+        csv_path=args.csv_path,
+        image_dir=args.image_dir,
+        batch_size=args.batch_size
+    )
+    
+    print(f"\nDataset Statistics:")
+    print(f"Total samples: {len(dataset)}")
+    print(f"Number of batches: {len(dataloader)}")
+    
+    # Test loading a batch
+    print("\nTesting batch loading...")
+    images, skin_tones, lesion_types = next(iter(dataloader))
+    print(f"Image batch shape: {images.shape}")
+    print(f"Skin tone labels shape: {skin_tones.shape}")
+    print(f"Lesion type labels shape: {lesion_types.shape}")
+    print(f"Image value range: [{images.min():.2f}, {images.max():.2f}]")
