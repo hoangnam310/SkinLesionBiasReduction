@@ -6,7 +6,9 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
 from typing import Tuple, Optional
-
+import requests 
+from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Label encoding mappings
 FITZPATRICK_ENCODING = {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5}
@@ -70,7 +72,50 @@ class SkinLesionDataset(Dataset):
             ])
         else:
             self.transform = transform
-    
+    def download_image(row):
+        """Download a single image and save it using its md5hash as filename."""
+        url = row['url']
+        md5hash = row['md5hash']
+        filepath = f'../dataset/images/{md5hash}.jpg'
+        
+        # Skip if already downloaded
+        if os.path.exists(filepath):
+            return md5hash, 'skipped'
+        
+        try:
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()  
+            
+            with open(filepath, 'wb') as f:
+                f.write(response.content)
+            return md5hash, 'success'
+        
+        except Exception as e:
+            return md5hash, f'failed: {str(e)}'
+    def download_all_images(df, max_workers=10):
+        """Download images in parallel using ThreadPoolExecutor."""
+        results = {'success': 0, 'failed': 0, 'skipped': 0}
+        failed_urls = []
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(download_image, row): row['md5hash'] 
+                    for _, row in df.iterrows()}
+            
+            for future in tqdm(as_completed(futures), total=len(futures)):
+                md5hash, status = future.result()
+                if status == 'success':
+                    results['success'] += 1
+                elif status == 'skipped':
+                    results['skipped'] += 1
+                else:
+                    results['failed'] += 1
+                    failed_urls.append((md5hash, status))
+        
+        print(f"Downloaded: {results['success']}")
+        print(f"Skipped (already exists): {results['skipped']}")
+        print(f"Failed: {results['failed']}")
+        
+        return failed_urls
     def _verify_images(self) -> None:
         """Verify that image files exist and filter out missing ones."""
         valid_indices = []
@@ -189,8 +234,13 @@ if __name__ == "__main__":
     parser.add_argument("--image_dir", type=str, 
                         default="dataset/images")
     parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--download_images", type=bool, default=False)
     args = parser.parse_args()
-    
+    if args.download_images == "True":
+        df = pd.read_csv('../dataset/fitzpatrick17k.csv')
+        os.makedirs('../dataset/images', exist_ok=True) 
+        failed = SkinLesionDataset.download_all_images(df, max_workers=300)
+        print(failed)
     print("Loading dataset...")
     dataloader, dataset = get_dataloader(
         csv_path=args.csv_path,
