@@ -26,7 +26,7 @@ from torchvision import transforms
 # Add src directory for local imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from data_process import SkinLesionDataset, NUM_LESION_TYPES
+from data_process import LESION_TYPE_ENCODING, NUM_LESION_TYPES, SkinLesionDataset
 from baseline_metrics import (
     collect_predictions,
     compute_bias_metrics,
@@ -108,6 +108,8 @@ def parse_args() -> argparse.Namespace:
                         help="Epoch index (0-based) to unfreeze backbone for fine-tuning; -1 disables")
     parser.add_argument("--fine_tune_lr", type=float, default=1e-5,
                         help="Learning rate after unfreezing backbone")
+    parser.add_argument("--class_weights", action="store_true",
+                        help="Use inverse-frequency class weights in CrossEntropyLoss")
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument(
         "--output_dir",
@@ -223,6 +225,19 @@ def create_optimizer(model: nn.Module, lr: float, weight_decay: float) -> optim.
     return optim.AdamW(params, lr=lr, weight_decay=weight_decay)
 
 
+def compute_inverse_class_weights(
+    dataset: SkinLesionDataset,
+    indices: List[int],
+    num_classes: int = NUM_LESION_TYPES,
+) -> torch.Tensor:
+    """Inverse-frequency class weights normalized to mean = 1."""
+    counts = torch.zeros(num_classes, dtype=torch.float)
+    for idx in indices:
+        label = LESION_TYPE_ENCODING[dataset.df.iloc[idx]["three_partition_label"]]
+        counts[label] += 1
+    return counts.sum() / (num_classes * counts.clamp(min=1))
+
+
 def run_epoch(
     model: nn.Module,
     loader: DataLoader,
@@ -290,8 +305,19 @@ def main() -> None:
         set_backbone_trainable(model, trainable=False)
         print("Training classifier head only (backbone frozen).")
 
-    criterion = nn.CrossEntropyLoss()
+    if args.class_weights:
+        underlying = train_loader.dataset.dataset
+        weights = compute_inverse_class_weights(underlying, train_indices).to(device)
+        print(f"Class weights (benign, malignant, non-neoplastic): "
+              f"{[round(w, 4) for w in weights.tolist()]}")
+        criterion = nn.CrossEntropyLoss(weight=weights)
+    else:
+        criterion = nn.CrossEntropyLoss()
     optimizer = create_optimizer(model, lr=args.lr, weight_decay=args.weight_decay)
+
+    best_val_loss = float("inf")
+    best_state = None
+    best_epoch = -1
 
     for epoch in range(args.epochs):
         if freeze_backbone and args.unfreeze_epoch >= 0 and epoch == args.unfreeze_epoch:
@@ -323,10 +349,27 @@ def main() -> None:
             max_steps=args.max_steps,
         )
 
+        is_best = val_metrics.loss < best_val_loss
+        marker = "  ← best" if is_best else ""
         print(
             f"Epoch [{epoch + 1}/{args.epochs}] "
             f"train_loss={train_metrics.loss:.4f}, train_acc={train_metrics.accuracy:.4f}, "
             f"val_loss={val_metrics.loss:.4f}, val_acc={val_metrics.accuracy:.4f}"
+            f"{marker}"
+        )
+
+        if is_best:
+            best_val_loss = val_metrics.loss
+            best_epoch = epoch
+            best_state = {
+                k: v.detach().cpu().clone() for k, v in model.state_dict().items()
+            }
+
+    if best_state is not None:
+        model.load_state_dict(best_state)
+        print(
+            f"Restored best weights from epoch {best_epoch + 1} "
+            f"(val_loss={best_val_loss:.4f}) for final evaluation."
         )
 
     if not args.no_save:
@@ -358,6 +401,8 @@ def main() -> None:
                 "train_indices": train_indices,
                 "val_indices": val_indices,
                 "metrics": metrics,
+                "best_epoch": best_epoch + 1 if best_epoch >= 0 else None,
+                "best_val_loss": best_val_loss if best_state is not None else None,
             },
             ckpt_path,
         )

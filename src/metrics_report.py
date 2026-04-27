@@ -194,7 +194,7 @@ def build_report(data: Dict) -> str:
     parts.append("")
 
     if classification:
-        parts.append("## Classification metrics (sklearn)")
+        parts.append("## Classification metrics")
         parts.append("")
         parts.append(render_classification(classification))
         parts.append("")
