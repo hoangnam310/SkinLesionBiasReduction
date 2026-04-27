@@ -1,12 +1,13 @@
 import os
 import argparse
+import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
-from typing import Tuple, Optional
-import requests 
+from typing import Callable, Tuple, Optional
+import requests
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -31,18 +32,25 @@ class SkinLesionDataset(Dataset):
         transform: Optional torchvision transforms to apply
         filter_skin_tones: Optional list of skin tones to include (1-6)
         filter_lesion_types: Optional list of lesion types to include
+        preprocess_fn: Optional callable applied to the raw image (uint8 RGB
+            numpy array) before `transform`. Use `segmentation.CV2Preprocess`
+            to run the cv2-only segmentation-aware crop at load time. For
+            SAM-based preprocessing, prefer `src/preprocess_segmentation.py`
+            and point `image_dir` at the resulting directory instead.
     """
-    
+
     def __init__(
         self,
         csv_path: str,
         image_dir: str,
         transform: Optional[transforms.Compose] = None,
         filter_skin_tones: Optional[list] = None,
-        filter_lesion_types: Optional[list] = None
+        filter_lesion_types: Optional[list] = None,
+        preprocess_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
     ):
         self.image_dir = image_dir
-        
+        self.preprocess_fn = preprocess_fn
+
         # Load and clean the CSV data
         self.df = pd.read_csv(csv_path)
         
@@ -147,7 +155,11 @@ class SkinLesionDataset(Dataset):
         # Load image
         img_path = os.path.join(self.image_dir, f"{row['md5hash']}.jpg")
         image = Image.open(img_path).convert("RGB")
-        
+
+        # Optional segmentation-aware preprocessing (numpy in / numpy out)
+        if self.preprocess_fn is not None:
+            image = Image.fromarray(self.preprocess_fn(np.array(image)))
+
         # Apply transforms
         image = self.transform(image)
         

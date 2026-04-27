@@ -1,3 +1,0 @@
-[2026-01-29 12:06:56] Starting training with args: Namespace(csv_path='dataset/fitzpatrick17k_cleaned.csv', image_dir='dataset/images', batch_size=64, epochs=200, lr=0.0002, beta1=0.5, beta2=0.999, latent_dim=100, embedding_dim=50, ngf=64, ndf=64, label_smoothing=0.1, noise_std=0.1, noise_decay=0.995, output_dir='outputs', checkpoint_interval=10, sample_interval=5, num_samples=16, resume=None, num_workers=4, device=None)
-[2026-01-29 12:06:56] Using device: mps
-[2026-01-29 12:06:56] Loading dataset...
