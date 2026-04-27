@@ -32,7 +32,8 @@ from .utils import (
     visualize_samples,
     save_generated_images,
     denormalize_image,
-    normalize_image
+    normalize_image,
+    compute_fid
 )
 
 __version__ = "0.1.0"
@@ -61,4 +62,5 @@ __all__ = [
     "save_generated_images",
     "denormalize_image",
     "normalize_image",
+    "compute_fid",
 ]

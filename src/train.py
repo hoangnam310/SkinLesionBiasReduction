@@ -34,7 +34,8 @@ from utils import (
     generate_samples,
     visualize_samples,
     setup_logging,
-    log_message
+    log_message,
+    compute_fid
 )
 
 
@@ -89,6 +90,10 @@ def parse_args():
                         help="Generate samples every N epochs")
     parser.add_argument("--num_samples", type=int, default=16,
                         help="Number of samples to generate for visualization")
+    parser.add_argument("--fid_interval", type=int, default=20,
+                        help="Compute FID every N epochs (0 to disable)")
+    parser.add_argument("--fid_num_samples", type=int, default=1000,
+                        help="Number of samples to use for FID computation")
     
     # Resume training
     parser.add_argument("--resume", type=str, default=None,
@@ -107,7 +112,6 @@ def get_device(device_str: str = None) -> torch.device:
     """Get the appropriate device for training."""
     if device_str is not None:
         return torch.device(device_str)
-    
     if torch.cuda.is_available():
         return torch.device("cuda")
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
@@ -173,9 +177,7 @@ def train_epoch(
         if noise_std > 0:
             real_images = real_images + torch.randn_like(real_images) * noise_std
         
-        # =====================
         # Train Discriminator
-        # =====================
         optimizer_d.zero_grad()
         
         # Real images
@@ -201,9 +203,7 @@ def train_epoch(
         loss_d.backward()
         optimizer_d.step()
         
-        # =====================
         # Train Generator
-        # =====================
         optimizer_g.zero_grad()
         
         # Generate fake images again (no noise for generator training)
@@ -401,6 +401,36 @@ def main():
                 checkpoint_path
             )
             log_message(log_file, f"Saved checkpoint: {checkpoint_path}")
+        
+        # Compute FID
+        if args.fid_interval > 0 and (epoch + 1) % args.fid_interval == 0:
+            log_message(log_file, "Computing FID...")
+            generator.eval()
+            
+            # Collect real images
+            real_images = []
+            for images, _, _ in dataloader:
+                real_images.append(images)
+                if len(real_images) * args.batch_size >= args.fid_num_samples:
+                    break
+            real_images = torch.cat(real_images, dim=0)[:args.fid_num_samples]
+            
+            # Generate fake images
+            with torch.inference_mode():
+                fake_images = []
+                for i in range(0, args.fid_num_samples, args.batch_size):
+                    n = min(args.batch_size, args.fid_num_samples - i)
+                    noise = torch.randn(n, args.latent_dim, device=device)
+                    skin_t = torch.randint(0, NUM_SKIN_TONES, (n,), device=device)
+                    lesion_t = torch.randint(0, NUM_LESION_TYPES, (n,), device=device)
+                    fake_images.append(generator(noise, skin_t, lesion_t).cpu())
+                fake_images = torch.cat(fake_images, dim=0)
+            
+            fid_score = compute_fid(real_images, fake_images, device)
+            log_message(log_file, f"FID: {fid_score:.2f}")
+            writer.add_scalar("FID", fid_score, epoch)
+            
+            generator.train()
     
     # Save final model
     final_path = checkpoint_dir / "final_model.pt"

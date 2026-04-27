@@ -19,6 +19,8 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 from torchvision.utils import make_grid, save_image
+from torchvision.models import inception_v3
+from scipy import linalg
 
 
 def weights_init(m: nn.Module) -> None:
@@ -180,7 +182,7 @@ def generate_samples(
     skin_tones = torch.full((num_samples,), skin_tone, dtype=torch.long, device=device)
     lesion_types = torch.full((num_samples,), lesion_type, dtype=torch.long, device=device)
     
-    with torch.inference_mode()():
+    with torch.inference_mode():
         samples = generator(noise, skin_tones, lesion_types)
     
     return samples
@@ -429,6 +431,73 @@ def normalize_image(image: torch.Tensor) -> torch.Tensor:
     return image * 2 - 1
 
 
+def compute_fid(real_images: torch.Tensor, fake_images: torch.Tensor, device: torch.device, batch_size: int = 16) -> float:
+    """
+    Compute Fréchet Inception Distance between real and fake images.
+    
+    Args:
+        real_images: Real images tensor (N, 3, H, W) in range [-1, 1]
+        fake_images: Fake images tensor (N, 3, H, W) in range [-1, 1]
+        device: Device to run computation on
+        batch_size: Batch size for processing (lower = less memory)
+        
+    Returns:
+        FID score (lower is better)
+    """
+    import gc
+    
+    # Load Inception model
+    inception = inception_v3(weights='IMAGENET1K_V1', transform_input=False)
+    inception.fc = nn.Identity()  # Remove classification layer
+    inception = inception.to(device).eval()
+    
+    # Preprocessing: resize to 299x299 and normalize for Inception
+    def preprocess(images):
+        images = nn.functional.interpolate(images, size=(299, 299), mode='bilinear', align_corners=False)
+        images = (images + 1) / 2
+        mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
+        return (images - mean) / std
+    
+    # Extract features in batches to save memory
+    def get_features(images):
+        features = []
+        with torch.no_grad():
+            for i in range(0, len(images), batch_size):
+                batch = preprocess(images[i:i+batch_size].to(device))
+                feat = inception(batch).cpu()
+                features.append(feat)
+                # Clear GPU cache
+                if device != "cpu":
+                    torch.mps.empty_cache() if str(device) == "mps" else torch.cuda.empty_cache()
+        return torch.cat(features, dim=0).numpy()
+    
+    real_features = get_features(real_images)
+    fake_features = get_features(fake_images)
+    
+    # Free up memory
+    del inception
+    gc.collect()
+    if str(device) == "mps":
+        torch.mps.empty_cache()
+    elif str(device) == "cuda":
+        torch.cuda.empty_cache()
+    
+    # Compute statistics
+    mu_real, sigma_real = real_features.mean(axis=0), np.cov(real_features, rowvar=False)
+    mu_fake, sigma_fake = fake_features.mean(axis=0), np.cov(fake_features, rowvar=False)
+    
+    # Compute FID
+    diff = mu_real - mu_fake
+    covmean, _ = linalg.sqrtm(sigma_real @ sigma_fake, disp=False)
+    
+    if np.iscomplexobj(covmean):
+        covmean = covmean.real
+    
+    fid = diff @ diff + np.trace(sigma_real + sigma_fake - 2 * covmean)
+    return float(fid)
+
+
 if __name__ == "__main__":
     # Test utilities
     print("Testing utility functions...")
@@ -447,4 +516,3 @@ if __name__ == "__main__":
     denorm = denormalize_image(test_tensor.clamp(-1, 1))
     print(f"Denormalized range: [{denorm.min():.2f}, {denorm.max():.2f}]")
     
-    print("\nAll utility tests passed!")

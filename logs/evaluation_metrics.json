@@ -1,0 +1,200 @@
+{
+  "checkpoint": "outputs/baseline_efficientnet/20260330_195351/checkpoint.pt",
+  "split": "val",
+  "image_size": 64,
+  "csv_path": "dataset/fitzpatrick17k_cleaned.csv",
+  "image_dir": "dataset/images",
+  "timestamp": "2026-04-26T20:52:31.161207",
+  "bias": {
+    "global": {
+      "n_samples": 3191,
+      "top1_accuracy": 0.6922594797869006,
+      "macro_auroc": 0.6317213350029229,
+      "macro_auprc": 0.43794098737783155
+    },
+    "per_fitzpatrick": {
+      "fitzpatrick_1": {
+        "n_samples": 602,
+        "accuracy": 0.6794019933554817,
+        "macro_auroc": 0.6622273956526508,
+        "macro_auprc": 0.4788116889706895,
+        "per_class": {
+          "benign": {
+            "n_samples": 101,
+            "auroc": 0.5839212663781349,
+            "auprc": 0.24886376158664675
+          },
+          "malignant": {
+            "n_samples": 85,
+            "auroc": 0.7496643531687337,
+            "auprc": 0.40496612068712035
+          },
+          "non-neoplastic": {
+            "n_samples": 416,
+            "auroc": 0.6530965674110835,
+            "auprc": 0.7826051846383013
+          }
+        }
+      },
+      "fitzpatrick_2": {
+        "n_samples": 920,
+        "accuracy": 0.6684782608695652,
+        "macro_auroc": 0.6217424281501656,
+        "macro_auprc": 0.44027522447509204,
+        "per_class": {
+          "benign": {
+            "n_samples": 112,
+            "auroc": 0.5694947842998586,
+            "auprc": 0.1849389650067036
+          },
+          "malignant": {
+            "n_samples": 164,
+            "auroc": 0.6798861143373337,
+            "auprc": 0.37530235708925985
+          },
+          "non-neoplastic": {
+            "n_samples": 644,
+            "auroc": 0.6158463858133045,
+            "auprc": 0.7605843513293127
+          }
+        }
+      },
+      "fitzpatrick_3": {
+        "n_samples": 665,
+        "accuracy": 0.6706766917293233,
+        "macro_auroc": 0.621669228580864,
+        "macro_auprc": 0.43572988390044665,
+        "per_class": {
+          "benign": {
+            "n_samples": 91,
+            "auroc": 0.586265650725581,
+            "auprc": 0.2069595031334681
+          },
+          "malignant": {
+            "n_samples": 100,
+            "auroc": 0.6718761061946903,
+            "auprc": 0.30847595259721516
+          },
+          "non-neoplastic": {
+            "n_samples": 474,
+            "auroc": 0.6068659288223208,
+            "auprc": 0.7917541959706567
+          }
+        }
+      },
+      "fitzpatrick_4": {
+        "n_samples": 554,
+        "accuracy": 0.7274368231046932,
+        "macro_auroc": 0.6303865792617735,
+        "macro_auprc": 0.4213703389494025,
+        "per_class": {
+          "benign": {
+            "n_samples": 75,
+            "auroc": 0.632178148921364,
+            "auprc": 0.21067886520264578
+          },
+          "malignant": {
+            "n_samples": 59,
+            "auroc": 0.6345146379044684,
+            "auprc": 0.22020655546094783
+          },
+          "non-neoplastic": {
+            "n_samples": 420,
+            "auroc": 0.6244669509594882,
+            "auprc": 0.8332255961846138
+          }
+        }
+      },
+      "fitzpatrick_5": {
+        "n_samples": 318,
+        "accuracy": 0.7264150943396226,
+        "macro_auroc": 0.5809127872860959,
+        "macro_auprc": 0.39905358376095995,
+        "per_class": {
+          "benign": {
+            "n_samples": 39,
+            "auroc": 0.535061115706277,
+            "auprc": 0.15450856094289733
+          },
+          "malignant": {
+            "n_samples": 29,
+            "auroc": 0.6282066579167165,
+            "auprc": 0.20985524799004013
+          },
+          "non-neoplastic": {
+            "n_samples": 250,
+            "auroc": 0.579470588235294,
+            "auprc": 0.8327969423499424
+          }
+        }
+      },
+      "fitzpatrick_6": {
+        "n_samples": 132,
+        "accuracy": 0.7954545454545454,
+        "macro_auroc": 0.6512464409471886,
+        "macro_auprc": 0.46007971755555027,
+        "per_class": {
+          "benign": {
+            "n_samples": 8,
+            "auroc": 0.653225806451613,
+            "auprc": 0.16622264592852826
+          },
+          "malignant": {
+            "n_samples": 16,
+            "auroc": 0.6357758620689655,
+            "auprc": 0.35258292754364773
+          },
+          "non-neoplastic": {
+            "n_samples": 108,
+            "auroc": 0.6647376543209876,
+            "auprc": 0.8614335791944749
+          }
+        }
+      }
+    }
+  },
+  "classification": {
+    "accuracy": 0.6922594797869006,
+    "balanced_accuracy": 0.413565832718942,
+    "macro_f1": 0.421538164427625,
+    "weighted_f1": 0.6551906271256699,
+    "confusion_matrix": [
+      [
+        47,
+        44,
+        335
+      ],
+      [
+        29,
+        110,
+        314
+      ],
+      [
+        122,
+        138,
+        2052
+      ]
+    ],
+    "per_class": {
+      "benign": {
+        "precision": 0.23737373737373738,
+        "recall": 0.11032863849765258,
+        "f1-score": 0.15064102564102563,
+        "support": 426
+      },
+      "malignant": {
+        "precision": 0.3767123287671233,
+        "recall": 0.24282560706401765,
+        "f1-score": 0.2953020134228188,
+        "support": 453
+      },
+      "non-neoplastic": {
+        "precision": 0.7597186227323214,
+        "recall": 0.8875432525951558,
+        "f1-score": 0.8186714542190305,
+        "support": 2312
+      }
+    },
+    "classification_report_str": "                precision    recall  f1-score   support\n\n        benign       0.24      0.11      0.15       426\n     malignant       0.38      0.24      0.30       453\nnon-neoplastic       0.76      0.89      0.82      2312\n\n      accuracy                           0.69      3191\n     macro avg       0.46      0.41      0.42      3191\n  weighted avg       0.64      0.69      0.66      3191\n"
+  }
+}

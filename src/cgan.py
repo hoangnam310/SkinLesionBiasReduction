@@ -202,6 +202,105 @@ class Discriminator(nn.Module):
         return x
 
 
+class Critic(nn.Module):
+    """
+    WGAN-GP Critic conditioned on skin tone and lesion type.
+    
+    For WGAN-GP, we remove BatchNorm and Sigmoid. The critic outputs unbounded values
+    representing how "real" an image looks. Uses LayerNorm instead of BatchNorm
+    for stability with gradient penalty.
+    
+    Args:
+        embedding_dim: Dimension of condition embeddings (default: 50)
+        num_skin_tones: Number of skin tone classes (default: 6)
+        num_lesion_types: Number of lesion type classes (default: 3)
+        ndf: Base number of critic filters (default: 64)
+    """
+    
+    def __init__(
+        self,
+        embedding_dim: int = 50,
+        num_skin_tones: int = NUM_SKIN_TONES,
+        num_lesion_types: int = NUM_LESION_TYPES,
+        ndf: int = 64
+    ):
+        super(Critic, self).__init__()
+        
+        self.embedding_dim = embedding_dim
+        
+        # Condition embeddings
+        self.skin_tone_embedding = nn.Embedding(num_skin_tones, embedding_dim)
+        self.lesion_type_embedding = nn.Embedding(num_lesion_types, embedding_dim)
+        
+        # Project condition embeddings to spatial representation
+        self.skin_embed_proj = nn.Linear(embedding_dim, 64 * 64)
+        self.lesion_embed_proj = nn.Linear(embedding_dim, 64 * 64)
+        
+        # Input channels: 3 (image) + 2 (condition channels)
+        # No BatchNorm for WGAN-GP (interferes with gradient penalty)
+        # Using InstanceNorm instead which works per-sample
+        self.conv = nn.Sequential(
+            # Layer 1: 5 x 64 x 64 -> 64 x 32 x 32
+            nn.Conv2d(3 + 2, ndf, 4, 2, 1, bias=True),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            # Layer 2: 64 x 32 x 32 -> 128 x 16 x 16
+            nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=True),
+            nn.InstanceNorm2d(ndf * 2, affine=True),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            # Layer 3: 128 x 16 x 16 -> 256 x 8 x 8
+            nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=True),
+            nn.InstanceNorm2d(ndf * 4, affine=True),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            # Layer 4: 256 x 8 x 8 -> 512 x 4 x 4
+            nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=True),
+            nn.InstanceNorm2d(ndf * 8, affine=True),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            # Layer 5: 512 x 4 x 4 -> 1 x 1 x 1
+            # No Sigmoid! Output is unbounded for Wasserstein distance
+            nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=True)
+        )
+    
+    def forward(
+        self, 
+        image: torch.Tensor, 
+        skin_tone: torch.Tensor, 
+        lesion_type: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Critique images conditioned on skin tone and lesion type.
+        
+        Args:
+            image: Input images of shape (batch_size, 3, 64, 64)
+            skin_tone: Skin tone labels of shape (batch_size,)
+            lesion_type: Lesion type labels of shape (batch_size,)
+            
+        Returns:
+            Critic scores (unbounded), shape (batch_size, 1)
+        """
+        batch_size = image.size(0)
+        
+        # Get condition embeddings
+        skin_embed = self.skin_tone_embedding(skin_tone)
+        lesion_embed = self.lesion_type_embedding(lesion_type)
+        
+        # Project embeddings to spatial representation
+        skin_channel = self.skin_embed_proj(skin_embed).view(batch_size, 1, 64, 64)
+        lesion_channel = self.lesion_embed_proj(lesion_embed).view(batch_size, 1, 64, 64)
+        
+        # Concatenate image with condition channels
+        x = torch.cat([image, skin_channel, lesion_channel], dim=1)
+        
+        # Critique
+        x = self.conv(x)
+        x = x.view(batch_size, -1)
+        
+        return x
+
+
 class cGAN(nn.Module):
     """
     Conditional GAN combining Generator and Discriminator.
@@ -304,6 +403,44 @@ def get_models(
         discriminator = discriminator.to(device)
     
     return generator, discriminator
+
+
+def get_wgan_models(
+    latent_dim: int = 100,
+    embedding_dim: int = 50,
+    ngf: int = 64,
+    ndf: int = 64,
+    device: torch.device = None
+) -> Tuple[Generator, Critic]:
+    """
+    Create Generator and Critic models for WGAN-GP.
+    
+    Args:
+        latent_dim: Dimension of the noise vector
+        embedding_dim: Dimension of condition embeddings
+        ngf: Base number of generator filters
+        ndf: Base number of critic filters
+        device: Device to move models to
+        
+    Returns:
+        Tuple of (Generator, Critic)
+    """
+    generator = Generator(
+        latent_dim=latent_dim,
+        embedding_dim=embedding_dim,
+        ngf=ngf
+    )
+    
+    critic = Critic(
+        embedding_dim=embedding_dim,
+        ndf=ndf
+    )
+    
+    if device is not None:
+        generator = generator.to(device)
+        critic = critic.to(device)
+    
+    return generator, critic
 
 
 if __name__ == "__main__":
