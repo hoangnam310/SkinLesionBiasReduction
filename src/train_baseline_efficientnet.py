@@ -22,6 +22,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
 from torchvision import transforms
+from tqdm.auto import tqdm
 
 # Add src directory for local imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -245,6 +246,7 @@ def run_epoch(
     device: torch.device,
     optimizer: optim.Optimizer = None,
     max_steps: int = 0,
+    desc: str = "",
 ) -> Metrics:
     is_train = optimizer is not None
     model.train(is_train)
@@ -253,7 +255,9 @@ def run_epoch(
     running_correct = 0
     running_total = 0
 
-    for step, (images, _, lesion_targets) in enumerate(loader):
+    total = min(max_steps, len(loader)) if max_steps > 0 else len(loader)
+    pbar = tqdm(loader, total=total, desc=desc or ("train" if is_train else "val"), leave=False)
+    for step, (images, _, lesion_targets) in enumerate(pbar):
         if max_steps > 0 and step >= max_steps:
             break
 
@@ -274,6 +278,12 @@ def run_epoch(
         running_correct += (preds == lesion_targets).sum().item()
         running_total += lesion_targets.size(0)
         running_loss += loss.item() * lesion_targets.size(0)
+
+        pbar.set_postfix(
+            loss=f"{running_loss / max(1, running_total):.4f}",
+            acc=f"{running_correct / max(1, running_total):.4f}",
+        )
+    pbar.close()
 
     avg_loss = running_loss / max(1, running_total)
     avg_acc = running_correct / max(1, running_total)
@@ -339,6 +349,7 @@ def main() -> None:
             device=device,
             optimizer=optimizer,
             max_steps=args.max_steps,
+            desc=f"epoch {epoch + 1}/{args.epochs} train",
         )
         val_metrics = run_epoch(
             model=model,
@@ -347,6 +358,7 @@ def main() -> None:
             device=device,
             optimizer=None,
             max_steps=args.max_steps,
+            desc=f"epoch {epoch + 1}/{args.epochs} val",
         )
 
         is_best = val_metrics.loss < best_val_loss
