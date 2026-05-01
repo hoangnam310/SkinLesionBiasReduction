@@ -70,8 +70,11 @@ class EfficientNetV2Baseline(nn.Module):
         )
         in_features = self.backbone.num_features
         self.classifier = nn.Sequential(
+            nn.Linear(in_features, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
             nn.Dropout(p=dropout),
-            nn.Linear(in_features, num_classes),
+            nn.Linear(256, num_classes),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
