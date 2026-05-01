@@ -90,7 +90,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=1e-4)
-    parser.add_argument("--val_split", type=float, default=0.2)
+    parser.add_argument("--val_split", type=float, default=0.15)
+    parser.add_argument("--test_split", type=float, default=0.15)
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max_steps", type=int, default=0,
@@ -160,7 +161,7 @@ def build_transforms(image_size: int) -> Tuple[transforms.Compose, transforms.Co
 
 def build_loaders(
     args: argparse.Namespace,
-) -> Tuple[DataLoader, DataLoader, List[int], List[int]]:
+) -> Tuple[DataLoader, DataLoader, DataLoader, List[int], List[int], List[int]]:
     train_transform, val_transform = build_transforms(args.image_size)
 
     train_dataset = SkinLesionDataset(
@@ -168,7 +169,7 @@ def build_loaders(
         image_dir=args.image_dir,
         transform=train_transform,
     )
-    val_dataset = SkinLesionDataset(
+    eval_dataset = SkinLesionDataset(
         csv_path=args.csv_path,
         image_dir=args.image_dir,
         transform=val_transform,
@@ -176,16 +177,21 @@ def build_loaders(
 
     n = len(train_dataset)
     val_len = max(1, int(n * args.val_split))
-    train_len = n - val_len
+    test_len = max(1, int(n * args.test_split))
+    train_len = n - val_len - test_len
     if train_len <= 0:
-        raise ValueError("Not enough samples after split. Lower --val_split.")
+        raise ValueError(
+            "Not enough samples after split. Lower --val_split and/or --test_split."
+        )
 
     perm = torch.randperm(n, generator=torch.Generator().manual_seed(args.seed))
     train_indices = perm[:train_len].tolist()
-    val_indices = perm[train_len:].tolist()
+    val_indices = perm[train_len : train_len + val_len].tolist()
+    test_indices = perm[train_len + val_len :].tolist()
 
     train_subset = Subset(train_dataset, train_indices)
-    val_subset = Subset(val_dataset, val_indices)
+    val_subset = Subset(eval_dataset, val_indices)
+    test_subset = Subset(eval_dataset, test_indices)
 
     train_loader = DataLoader(
         train_subset,
@@ -201,7 +207,14 @@ def build_loaders(
         num_workers=args.num_workers,
         pin_memory=True,
     )
-    return train_loader, val_loader, train_indices, val_indices
+    test_loader = DataLoader(
+        test_subset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    return train_loader, val_loader, test_loader, train_indices, val_indices, test_indices
 
 
 def build_model(
@@ -298,8 +311,19 @@ def main() -> None:
     print(f"Using device: {device}")
     print(f"Image size: {args.image_size}x{args.image_size}")
 
-    train_loader, val_loader, train_indices, val_indices = build_loaders(args)
-    print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
+    (
+        train_loader,
+        val_loader,
+        test_loader,
+        train_indices,
+        val_indices,
+        test_indices,
+    ) = build_loaders(args)
+    print(
+        f"Train batches: {len(train_loader)}, "
+        f"Val batches: {len(val_loader)}, "
+        f"Test batches: {len(test_loader)}"
+    )
 
     pretrained = args.pretrained and not args.no_pretrained
     freeze_backbone = args.freeze_backbone and not args.no_freeze_backbone
@@ -389,18 +413,19 @@ def main() -> None:
         out.mkdir(parents=True, exist_ok=True)
         eval_batches = args.max_steps if args.max_steps > 0 else 0
         y_true, y_pred, y_prob, skin_tones = collect_predictions(
-            model, val_loader, device, max_batches=eval_batches
+            model, test_loader, device, max_batches=eval_batches
         )
         classification_metrics = compute_classification_metrics(y_true, y_pred)
         bias_metrics = compute_bias_metrics(y_true, y_pred, y_prob, skin_tones)
         metrics = {
+            "split": "test",
             "classification": classification_metrics,
             "bias": bias_metrics,
         }
         if eval_batches > 0:
             metrics["_note"] = (
-                f"Metrics computed on first {eval_batches} val batch(es) only "
-                "(because --max_steps > 0). For full-val metrics, train with --max_steps 0."
+                f"Metrics computed on first {eval_batches} test batch(es) only "
+                "(because --max_steps > 0). For full-test metrics, train with --max_steps 0."
             )
         metrics_path = out / "metrics.json"
         with open(metrics_path, "w", encoding="utf-8") as f:
@@ -412,6 +437,7 @@ def main() -> None:
                 "args": vars(args),
                 "train_indices": train_indices,
                 "val_indices": val_indices,
+                "test_indices": test_indices,
                 "metrics": metrics,
                 "best_epoch": best_epoch + 1 if best_epoch >= 0 else None,
                 "best_val_loss": best_val_loss if best_state is not None else None,

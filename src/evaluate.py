@@ -7,7 +7,8 @@ breakdowns), and writes them to ``logs/evaluation_metrics.json``.
 
 Usage:
     python src/evaluate.py --checkpoint outputs/baseline_efficientnet/<run>/checkpoint.pt
-    python src/evaluate.py --checkpoint <path> --split all   # ignore stored val_indices
+    python src/evaluate.py --checkpoint <path> --split val   # use stored val_indices instead
+    python src/evaluate.py --checkpoint <path> --split all   # ignore stored indices
 """
 
 import argparse
@@ -51,8 +52,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--device", type=str, default=None)
-    parser.add_argument("--split", choices=["val", "all"], default="val",
-                        help="'val' uses val_indices stored in the checkpoint; 'all' uses every sample")
+    parser.add_argument("--split", choices=["test", "val", "all"], default="test",
+                        help="'test' uses test_indices from the checkpoint (default), "
+                             "'val' uses val_indices, 'all' uses every sample")
     parser.add_argument("--logs_dir", type=str, default="logs",
                         help="Directory to write evaluation_metrics.json into")
     return parser.parse_args()
@@ -140,10 +142,22 @@ def main() -> None:
     model.eval()
 
     indices = None
-    if args.split == "val":
+    split_label = args.split
+    if args.split == "test":
+        indices = ckpt.get("test_indices")
+        if indices is None:
+            indices = ckpt.get("val_indices")
+            if indices is None:
+                print("Checkpoint has no test_indices or val_indices; falling back to full dataset.")
+                split_label = "all"
+            else:
+                print("Checkpoint has no test_indices (older run); falling back to val_indices.")
+                split_label = "val"
+    elif args.split == "val":
         indices = ckpt.get("val_indices")
         if indices is None:
             print("Checkpoint has no val_indices; falling back to full dataset.")
+            split_label = "all"
 
     loader = build_loader(
         csv_path=csv_path,
@@ -161,7 +175,7 @@ def main() -> None:
 
     output = {
         "checkpoint": str(args.checkpoint),
-        "split": args.split,
+        "split": split_label,
         "image_size": image_size,
         "csv_path": csv_path,
         "image_dir": image_dir,
