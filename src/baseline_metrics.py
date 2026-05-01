@@ -208,8 +208,16 @@ def compute_bias_metrics(
         per_class: Dict[str, Dict] = {}
         for c, name in enumerate(class_names):
             binary_true = (sub_y_true == c).astype(np.int64)
+            n_class = int(binary_true.sum())
+            n_pred = int((sub_y_pred == c).sum())
+            n_correct = int(((sub_y_true == c) & (sub_y_pred == c)).sum())
+            recall = float(n_correct / n_class) if n_class > 0 else None
+            precision = float(n_correct / n_pred) if n_pred > 0 else None
             per_class[name] = {
-                "n_samples": int(binary_true.sum()),
+                "n_samples": n_class,
+                "accuracy": recall,  # per-class accuracy = recall = TPR
+                "recall": recall,
+                "precision": precision,
                 "auroc": _safe_binary_auroc(binary_true, sub_y_prob[:, c]),
                 "auprc": _safe_binary_auprc(binary_true, sub_y_prob[:, c]),
             }

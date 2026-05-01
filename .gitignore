@@ -4,3 +4,4 @@ outputs
 src/__pycache__
 CLAUDE.md
 dataset
+.env
