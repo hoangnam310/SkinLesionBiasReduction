@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Subset
 
@@ -52,9 +53,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--device", type=str, default=None)
-    parser.add_argument("--split", choices=["test", "val", "all"], default="test",
-                        help="'test' uses test_indices from the checkpoint (default), "
-                             "'val' uses val_indices, 'all' uses every sample")
+    parser.add_argument("--split", choices=["test", "val", "train", "all"], default="test",
+                        help="Filters by the CSV's 'partition' column when available "
+                             "(falls back to *_indices stored in the checkpoint for older runs). "
+                             "'all' ignores the partition and evaluates every sample.")
     parser.add_argument("--logs_dir", type=str, default="logs",
                         help="Directory to write evaluation_metrics.json into")
     return parser.parse_args()
@@ -70,6 +72,7 @@ def build_loader(
     image_size: int,
     batch_size: int,
     num_workers: int,
+    partition: Optional[str] = None,
     indices: Optional[List[int]] = None,
 ) -> DataLoader:
     _, val_transform = build_transforms(image_size)
@@ -77,6 +80,7 @@ def build_loader(
         csv_path=csv_path,
         image_dir=image_dir,
         transform=val_transform,
+        partition=partition,
     )
     subset = Subset(dataset, indices) if indices is not None else dataset
     return DataLoader(
@@ -141,23 +145,27 @@ def main() -> None:
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
 
-    indices = None
+    partition: Optional[str] = None
+    indices: Optional[List[int]] = None
     split_label = args.split
-    if args.split == "test":
-        indices = ckpt.get("test_indices")
-        if indices is None:
-            indices = ckpt.get("val_indices")
+
+    csv_has_partition = "partition" in pd.read_csv(csv_path, nrows=0).columns
+
+    if args.split in ("train", "val", "test"):
+        if csv_has_partition:
+            partition = args.split
+        else:
+            legacy_key = f"{args.split}_indices"
+            indices = ckpt.get(legacy_key)
+            if indices is None and args.split == "test":
+                indices = ckpt.get("val_indices")
+                if indices is not None:
+                    print("Checkpoint has no test_indices (older run); falling back to val_indices.")
+                    split_label = "val"
             if indices is None:
-                print("Checkpoint has no test_indices or val_indices; falling back to full dataset.")
+                print(f"CSV has no 'partition' column and no {legacy_key} in checkpoint; "
+                      "evaluating on full dataset.")
                 split_label = "all"
-            else:
-                print("Checkpoint has no test_indices (older run); falling back to val_indices.")
-                split_label = "val"
-    elif args.split == "val":
-        indices = ckpt.get("val_indices")
-        if indices is None:
-            print("Checkpoint has no val_indices; falling back to full dataset.")
-            split_label = "all"
 
     loader = build_loader(
         csv_path=csv_path,
@@ -165,6 +173,7 @@ def main() -> None:
         image_size=image_size,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
+        partition=partition,
         indices=indices,
     )
     print(f"Evaluating on {len(loader.dataset)} samples ({len(loader)} batches)")

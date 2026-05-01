@@ -47,16 +47,29 @@ class SkinLesionDataset(Dataset):
         filter_skin_tones: Optional[list] = None,
         filter_lesion_types: Optional[list] = None,
         preprocess_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+        partition: Optional[str] = None,
     ):
         self.image_dir = image_dir
         self.preprocess_fn = preprocess_fn
 
         # Load and clean the CSV data
         self.df = pd.read_csv(csv_path)
-        
+
         # Remove invalid fitzpatrick_scale values (-1)
         self.df = self.df[self.df["fitzpatrick_scale"] != -1].reset_index(drop=True)
-        
+
+        if partition is not None:
+            if "partition" not in self.df.columns:
+                raise ValueError(
+                    f"CSV {csv_path!r} has no 'partition' column; cannot select "
+                    f"partition={partition!r}."
+                )
+            self.df = self.df[self.df["partition"] == partition].reset_index(drop=True)
+            if len(self.df) == 0:
+                raise ValueError(
+                    f"No rows for partition={partition!r} in {csv_path!r}."
+                )
+
         # Apply optional filters
         if filter_skin_tones is not None:
             self.df = self.df[

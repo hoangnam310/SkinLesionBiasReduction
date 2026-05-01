@@ -15,12 +15,12 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import List, Tuple
+from typing import Tuple
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 from torchvision import transforms
 from tqdm.auto import tqdm
 
@@ -83,15 +83,14 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Train EfficientNetV2-B0 baseline classifier"
     )
-    parser.add_argument("--csv_path", type=str, default="dataset/fitzpatrick17k_cleaned.csv")
+    parser.add_argument("--csv_path", type=str, default="dataset/fitzpatrick17k_c.csv",
+                        help="CSV with a 'partition' column (train/val/test)")
     parser.add_argument("--image_dir", type=str, default="dataset/images")
     parser.add_argument("--image_size", type=int, default=64)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=1e-4)
-    parser.add_argument("--val_split", type=float, default=0.15)
-    parser.add_argument("--test_split", type=float, default=0.15)
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max_steps", type=int, default=0,
@@ -161,60 +160,50 @@ def build_transforms(image_size: int) -> Tuple[transforms.Compose, transforms.Co
 
 def build_loaders(
     args: argparse.Namespace,
-) -> Tuple[DataLoader, DataLoader, DataLoader, List[int], List[int], List[int]]:
+) -> Tuple[DataLoader, DataLoader, DataLoader, SkinLesionDataset]:
     train_transform, val_transform = build_transforms(args.image_size)
 
     train_dataset = SkinLesionDataset(
         csv_path=args.csv_path,
         image_dir=args.image_dir,
         transform=train_transform,
+        partition="train",
     )
-    eval_dataset = SkinLesionDataset(
+    val_dataset = SkinLesionDataset(
         csv_path=args.csv_path,
         image_dir=args.image_dir,
         transform=val_transform,
+        partition="val",
+    )
+    test_dataset = SkinLesionDataset(
+        csv_path=args.csv_path,
+        image_dir=args.image_dir,
+        transform=val_transform,
+        partition="test",
     )
 
-    n = len(train_dataset)
-    val_len = max(1, int(n * args.val_split))
-    test_len = max(1, int(n * args.test_split))
-    train_len = n - val_len - test_len
-    if train_len <= 0:
-        raise ValueError(
-            "Not enough samples after split. Lower --val_split and/or --test_split."
-        )
-
-    perm = torch.randperm(n, generator=torch.Generator().manual_seed(args.seed))
-    train_indices = perm[:train_len].tolist()
-    val_indices = perm[train_len : train_len + val_len].tolist()
-    test_indices = perm[train_len + val_len :].tolist()
-
-    train_subset = Subset(train_dataset, train_indices)
-    val_subset = Subset(eval_dataset, val_indices)
-    test_subset = Subset(eval_dataset, test_indices)
-
     train_loader = DataLoader(
-        train_subset,
+        train_dataset,
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.num_workers,
         pin_memory=True,
     )
     val_loader = DataLoader(
-        val_subset,
+        val_dataset,
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
         pin_memory=True,
     )
     test_loader = DataLoader(
-        test_subset,
+        test_dataset,
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
         pin_memory=True,
     )
-    return train_loader, val_loader, test_loader, train_indices, val_indices, test_indices
+    return train_loader, val_loader, test_loader, train_dataset
 
 
 def build_model(
@@ -241,14 +230,12 @@ def create_optimizer(model: nn.Module, lr: float, weight_decay: float) -> optim.
 
 def compute_inverse_class_weights(
     dataset: SkinLesionDataset,
-    indices: List[int],
     num_classes: int = NUM_LESION_TYPES,
 ) -> torch.Tensor:
     """Inverse-frequency class weights normalized to mean = 1."""
     counts = torch.zeros(num_classes, dtype=torch.float)
-    for idx in indices:
-        label = LESION_TYPE_ENCODING[dataset.df.iloc[idx]["three_partition_label"]]
-        counts[label] += 1
+    for label_str in dataset.df["three_partition_label"]:
+        counts[LESION_TYPE_ENCODING[label_str]] += 1
     return counts.sum() / (num_classes * counts.clamp(min=1))
 
 
@@ -311,18 +298,11 @@ def main() -> None:
     print(f"Using device: {device}")
     print(f"Image size: {args.image_size}x{args.image_size}")
 
-    (
-        train_loader,
-        val_loader,
-        test_loader,
-        train_indices,
-        val_indices,
-        test_indices,
-    ) = build_loaders(args)
+    train_loader, val_loader, test_loader, train_dataset = build_loaders(args)
     print(
-        f"Train batches: {len(train_loader)}, "
-        f"Val batches: {len(val_loader)}, "
-        f"Test batches: {len(test_loader)}"
+        f"Train: {len(train_loader.dataset)} samples ({len(train_loader)} batches), "
+        f"Val: {len(val_loader.dataset)} ({len(val_loader)}), "
+        f"Test: {len(test_loader.dataset)} ({len(test_loader)})"
     )
 
     pretrained = args.pretrained and not args.no_pretrained
@@ -340,8 +320,7 @@ def main() -> None:
         print("Training classifier head only (backbone frozen).")
 
     if args.class_weights:
-        underlying = train_loader.dataset.dataset
-        weights = compute_inverse_class_weights(underlying, train_indices).to(device)
+        weights = compute_inverse_class_weights(train_dataset).to(device)
         print(f"Class weights (benign, malignant, non-neoplastic): "
               f"{[round(w, 4) for w in weights.tolist()]}")
         criterion = nn.CrossEntropyLoss(weight=weights)
@@ -435,9 +414,6 @@ def main() -> None:
             {
                 "model_state_dict": model.state_dict(),
                 "args": vars(args),
-                "train_indices": train_indices,
-                "val_indices": val_indices,
-                "test_indices": test_indices,
                 "metrics": metrics,
                 "best_epoch": best_epoch + 1 if best_epoch >= 0 else None,
                 "best_val_loss": best_val_loss if best_state is not None else None,
