@@ -17,7 +17,7 @@ from tqdm import tqdm
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from cgan import Generator
+from cgan import Generator, GeneratorUpsample
 from utils import (
     load_generator_only,
     generate_samples,
@@ -47,6 +47,10 @@ def parse_args():
                         help="Dimension of condition embeddings (must match training)")
     parser.add_argument("--ngf", type=int, default=64,
                         help="Base number of generator filters (must match training)")
+    parser.add_argument("--gen_arch", type=str, default="auto",
+                        choices=["auto", "upsample", "deconv"],
+                        help="Generator architecture. 'auto' picks from the checkpoint's "
+                             "state_dict keys ('up.*' -> upsample, 'deconv.*' -> deconv).")
     
     # Generation arguments
     parser.add_argument("--output_dir", type=str, default="generated_images",
@@ -108,16 +112,43 @@ def main():
     images_dir = output_dir / "images"
     images_dir.mkdir(exist_ok=True)
     
-    # Load generator
+    # Load checkpoint and pick the matching generator architecture.
     print(f"Loading generator from {args.checkpoint}...")
-    generator = Generator(
-        latent_dim=args.latent_dim,
-        embedding_dim=args.embedding_dim,
-        ngf=args.ngf
-    )
+    checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
+    gen_state = checkpoint["generator_state_dict"]
+
+    if args.gen_arch == "auto":
+        has_up = any(k.startswith("up.") for k in gen_state)
+        has_deconv = any(k.startswith("deconv.") for k in gen_state)
+        if has_up and not has_deconv:
+            gen_arch = "upsample"
+        elif has_deconv and not has_up:
+            gen_arch = "deconv"
+        else:
+            raise RuntimeError(
+                f"Cannot auto-detect generator architecture from checkpoint keys "
+                f"(has_up={has_up}, has_deconv={has_deconv}). "
+                f"Pass --gen_arch upsample|deconv explicitly."
+            )
+        print(f"Auto-detected gen_arch={gen_arch!r}")
+    else:
+        gen_arch = args.gen_arch
+
+    if gen_arch == "upsample":
+        generator = GeneratorUpsample(
+            latent_dim=args.latent_dim,
+            embedding_dim=args.embedding_dim,
+            ngf=args.ngf,
+        )
+    else:
+        generator = Generator(
+            latent_dim=args.latent_dim,
+            embedding_dim=args.embedding_dim,
+            ngf=args.ngf,
+        )
+
     generator = generator.to(device)
-    
-    checkpoint = load_generator_only(args.checkpoint, generator, device)
+    generator.load_state_dict(gen_state)
     epoch = checkpoint.get("epoch", "unknown")
     print(f"Loaded checkpoint from epoch {epoch}")
     
