@@ -102,6 +102,77 @@ class Generator(nn.Module):
         return x
 
 
+class GeneratorUpsample(nn.Module):
+    """
+    Same conditioning as Generator (concat noise + skin/lesion embeddings, FC to
+    1024x4x4) but each upsampling stage is `Upsample(nearest) + Conv2d(3x3)`
+    instead of stride-2 ConvTranspose2d. This removes the uneven-overlap
+    checkerboard artifacts that show up in DCGAN-style outputs.
+
+    Args:
+        latent_dim: Dimension of the noise vector (default: 100)
+        embedding_dim: Dimension of condition embeddings (default: 50)
+        num_skin_tones: Number of skin tone classes (default: 6)
+        num_lesion_types: Number of lesion type classes (default: 3)
+        ngf: Base number of generator filters (default: 64)
+    """
+
+    def __init__(
+        self,
+        latent_dim: int = 100,
+        embedding_dim: int = 50,
+        num_skin_tones: int = NUM_SKIN_TONES,
+        num_lesion_types: int = NUM_LESION_TYPES,
+        ngf: int = 64,
+    ):
+        super(GeneratorUpsample, self).__init__()
+
+        self.latent_dim = latent_dim
+        self.embedding_dim = embedding_dim
+
+        self.skin_tone_embedding = nn.Embedding(num_skin_tones, embedding_dim)
+        self.lesion_type_embedding = nn.Embedding(num_lesion_types, embedding_dim)
+
+        self.input_dim = latent_dim + 2 * embedding_dim
+
+        self.fc = nn.Sequential(
+            nn.Linear(self.input_dim, ngf * 16 * 4 * 4),
+            nn.BatchNorm1d(ngf * 16 * 4 * 4),
+            nn.ReLU(True),
+        )
+
+        def up_block(in_ch, out_ch, final=False):
+            layers = [
+                nn.Upsample(scale_factor=2, mode="nearest"),
+                nn.Conv2d(in_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=final),
+            ]
+            if not final:
+                layers += [nn.BatchNorm2d(out_ch), nn.ReLU(True)]
+            return layers
+
+        self.up = nn.Sequential(
+            *up_block(ngf * 16, ngf * 8),   # 4x4 -> 8x8
+            *up_block(ngf * 8, ngf * 4),    # 8x8 -> 16x16
+            *up_block(ngf * 4, ngf * 2),    # 16x16 -> 32x32
+            *up_block(ngf * 2, 3, final=True),  # 32x32 -> 64x64
+            nn.Tanh(),
+        )
+
+    def forward(
+        self,
+        noise: torch.Tensor,
+        skin_tone: torch.Tensor,
+        lesion_type: torch.Tensor,
+    ) -> torch.Tensor:
+        skin_embed = self.skin_tone_embedding(skin_tone)
+        lesion_embed = self.lesion_type_embedding(lesion_type)
+        x = torch.cat([noise, skin_embed, lesion_embed], dim=1)
+        x = self.fc(x)
+        x = x.view(x.size(0), -1, 4, 4)
+        x = self.up(x)
+        return x
+
+
 class Discriminator(nn.Module):
     """
     DCGAN-style Discriminator conditioned on skin tone and lesion type.
@@ -410,36 +481,47 @@ def get_wgan_models(
     embedding_dim: int = 50,
     ngf: int = 64,
     ndf: int = 64,
-    device: torch.device = None
-) -> Tuple[Generator, Critic]:
+    device: torch.device = None,
+    gen_arch: str = "upsample",
+) -> Tuple[nn.Module, Critic]:
     """
     Create Generator and Critic models for WGAN-GP.
-    
+
     Args:
         latent_dim: Dimension of the noise vector
         embedding_dim: Dimension of condition embeddings
         ngf: Base number of generator filters
         ndf: Base number of critic filters
         device: Device to move models to
-        
+        gen_arch: "upsample" (Upsample+Conv, default) or "deconv" (ConvTranspose2d).
+
     Returns:
         Tuple of (Generator, Critic)
     """
-    generator = Generator(
-        latent_dim=latent_dim,
-        embedding_dim=embedding_dim,
-        ngf=ngf
-    )
-    
+    if gen_arch == "upsample":
+        generator = GeneratorUpsample(
+            latent_dim=latent_dim,
+            embedding_dim=embedding_dim,
+            ngf=ngf,
+        )
+    elif gen_arch == "deconv":
+        generator = Generator(
+            latent_dim=latent_dim,
+            embedding_dim=embedding_dim,
+            ngf=ngf,
+        )
+    else:
+        raise ValueError(f"Unknown gen_arch={gen_arch!r}; expected 'upsample' or 'deconv'.")
+
     critic = Critic(
         embedding_dim=embedding_dim,
-        ndf=ndf
+        ndf=ndf,
     )
-    
+
     if device is not None:
         generator = generator.to(device)
         critic = critic.to(device)
-    
+
     return generator, critic
 
 
