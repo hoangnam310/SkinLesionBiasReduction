@@ -65,6 +65,12 @@ def parse_args():
     parser.add_argument("--ndf", type=int, default=64)
     parser.add_argument("--gen_arch", type=str, default="upsample",
                         choices=["upsample", "deconv"])
+    parser.add_argument("--use_attention", action=argparse.BooleanOptionalAction, default=True,
+                        help="Insert SAGAN-style SelfAttention at 32x32 in both G and Critic. "
+                             "Pass --no-use_attention to disable.")
+    parser.add_argument("--critic_norm", type=str, default="instance",
+                        choices=["instance", "layer"],
+                        help="Critic normalization. 'layer' matches the original WGAN-GP paper.")
 
     parser.add_argument("--output_dir", type=str, default="outputs")
     parser.add_argument("--checkpoint_interval", type=int, default=10)
@@ -277,7 +283,11 @@ def main():
         num_workers=args.num_workers,
     )
 
-    log_message(log_file, f"Creating models (gen_arch={args.gen_arch})...")
+    log_message(
+        log_file,
+        f"Creating models (gen_arch={args.gen_arch}, "
+        f"use_attention={args.use_attention}, critic_norm={args.critic_norm})...",
+    )
     generator, critic = get_wgan_models(
         latent_dim=args.latent_dim,
         embedding_dim=args.embedding_dim,
@@ -285,6 +295,8 @@ def main():
         ndf=args.ndf,
         device=device,
         gen_arch=args.gen_arch,
+        use_attention=args.use_attention,
+        critic_norm=args.critic_norm,
     )
     generator.apply(weights_init)
     critic.apply(weights_init)

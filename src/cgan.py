@@ -5,6 +5,38 @@ from typing import Tuple
 from data_process import NUM_SKIN_TONES, NUM_LESION_TYPES
 
 
+class SelfAttention(nn.Module):
+    """SAGAN-style self-attention block.
+
+    Computes softmax attention over all spatial positions in a feature map:
+        out = gamma * (Value @ softmax(Query^T Key)) + x
+    `gamma` is initialized to 0 so the layer starts as the identity and only
+    becomes useful as the gradient signal teaches it to be.
+
+    Args:
+        in_channels: number of channels in the input feature map.
+    """
+
+    def __init__(self, in_channels: int):
+        super().__init__()
+        self.in_channels = in_channels
+        reduced = max(in_channels // 8, 1)
+        self.query = nn.Conv2d(in_channels, reduced, kernel_size=1)
+        self.key = nn.Conv2d(in_channels, reduced, kernel_size=1)
+        self.value = nn.Conv2d(in_channels, in_channels, kernel_size=1)
+        self.gamma = nn.Parameter(torch.zeros(1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, C, H, W = x.shape
+        N = H * W
+        q = self.query(x).reshape(B, -1, N).permute(0, 2, 1)  # (B, N, C/8)
+        k = self.key(x).reshape(B, -1, N)                      # (B, C/8, N)
+        v = self.value(x).reshape(B, -1, N)                    # (B, C, N)
+        attn = torch.softmax(torch.bmm(q, k), dim=-1)          # (B, N, N)
+        out = torch.bmm(v, attn.permute(0, 2, 1)).reshape(B, C, H, W)
+        return self.gamma * out + x
+
+
 class Generator(nn.Module):
     """    
     Takes a noise vector concatenated with condition embeddings and
@@ -124,11 +156,13 @@ class GeneratorUpsample(nn.Module):
         num_skin_tones: int = NUM_SKIN_TONES,
         num_lesion_types: int = NUM_LESION_TYPES,
         ngf: int = 64,
+        use_attention: bool = False,
     ):
         super(GeneratorUpsample, self).__init__()
 
         self.latent_dim = latent_dim
         self.embedding_dim = embedding_dim
+        self.use_attention = use_attention
 
         self.skin_tone_embedding = nn.Embedding(num_skin_tones, embedding_dim)
         self.lesion_type_embedding = nn.Embedding(num_lesion_types, embedding_dim)
@@ -150,13 +184,15 @@ class GeneratorUpsample(nn.Module):
                 layers += [nn.BatchNorm2d(out_ch), nn.ReLU(True)]
             return layers
 
-        self.up = nn.Sequential(
-            *up_block(ngf * 16, ngf * 8),   # 4x4 -> 8x8
-            *up_block(ngf * 8, ngf * 4),    # 8x8 -> 16x16
-            *up_block(ngf * 4, ngf * 2),    # 16x16 -> 32x32
-            *up_block(ngf * 2, 3, final=True),  # 32x32 -> 64x64
-            nn.Tanh(),
-        )
+        layers = []
+        layers += up_block(ngf * 16, ngf * 8)   # 4x4 -> 8x8
+        layers += up_block(ngf * 8, ngf * 4)    # 8x8 -> 16x16
+        layers += up_block(ngf * 4, ngf * 2)    # 16x16 -> 32x32
+        if use_attention:
+            layers.append(SelfAttention(ngf * 2))  # attention at 32x32
+        layers += up_block(ngf * 2, 3, final=True)  # 32x32 -> 64x64
+        layers.append(nn.Tanh())
+        self.up = nn.Sequential(*layers)
 
     def forward(
         self,
@@ -293,47 +329,63 @@ class Critic(nn.Module):
         embedding_dim: int = 50,
         num_skin_tones: int = NUM_SKIN_TONES,
         num_lesion_types: int = NUM_LESION_TYPES,
-        ndf: int = 64
+        ndf: int = 64,
+        norm: str = "instance",
+        use_attention: bool = False,
     ):
         super(Critic, self).__init__()
-        
+
         self.embedding_dim = embedding_dim
-        
+        self.norm = norm
+        self.use_attention = use_attention
+
         # Condition embeddings
         self.skin_tone_embedding = nn.Embedding(num_skin_tones, embedding_dim)
         self.lesion_type_embedding = nn.Embedding(num_lesion_types, embedding_dim)
-        
+
         # Project condition embeddings to spatial representation
         self.skin_embed_proj = nn.Linear(embedding_dim, 64 * 64)
         self.lesion_embed_proj = nn.Linear(embedding_dim, 64 * 64)
-        
-        # Input channels: 3 (image) + 2 (condition channels)
-        # No BatchNorm for WGAN-GP (interferes with gradient penalty)
-        # Using InstanceNorm instead which works per-sample
-        self.conv = nn.Sequential(
+
+        # No BatchNorm for WGAN-GP (interferes with gradient penalty).
+        # Default is InstanceNorm; LayerNorm is the original WGAN-GP paper's
+        # recommendation and is opt-in via norm="layer".
+        def norm_layer(channels: int, spatial: int) -> nn.Module:
+            if norm == "instance":
+                return nn.InstanceNorm2d(channels, affine=True)
+            if norm == "layer":
+                return nn.LayerNorm([channels, spatial, spatial])
+            raise ValueError(f"Unknown norm={norm!r}; expected 'instance' or 'layer'.")
+
+        layers = [
             # Layer 1: 5 x 64 x 64 -> 64 x 32 x 32
             nn.Conv2d(3 + 2, ndf, 4, 2, 1, bias=True),
             nn.LeakyReLU(0.2, inplace=True),
-            
+        ]
+        if use_attention:
+            layers.append(SelfAttention(ndf))  # attention at 32x32
+
+        layers += [
             # Layer 2: 64 x 32 x 32 -> 128 x 16 x 16
             nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=True),
-            nn.InstanceNorm2d(ndf * 2, affine=True),
+            norm_layer(ndf * 2, 16),
             nn.LeakyReLU(0.2, inplace=True),
-            
+
             # Layer 3: 128 x 16 x 16 -> 256 x 8 x 8
             nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=True),
-            nn.InstanceNorm2d(ndf * 4, affine=True),
+            norm_layer(ndf * 4, 8),
             nn.LeakyReLU(0.2, inplace=True),
-            
+
             # Layer 4: 256 x 8 x 8 -> 512 x 4 x 4
             nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=True),
-            nn.InstanceNorm2d(ndf * 8, affine=True),
+            norm_layer(ndf * 8, 4),
             nn.LeakyReLU(0.2, inplace=True),
-            
+
             # Layer 5: 512 x 4 x 4 -> 1 x 1 x 1
-            # No Sigmoid! Output is unbounded for Wasserstein distance
-            nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=True)
-        )
+            # No Sigmoid! Output is unbounded for Wasserstein distance.
+            nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=True),
+        ]
+        self.conv = nn.Sequential(*layers)
     
     def forward(
         self, 
@@ -483,6 +535,8 @@ def get_wgan_models(
     ndf: int = 64,
     device: torch.device = None,
     gen_arch: str = "upsample",
+    use_attention: bool = False,
+    critic_norm: str = "instance",
 ) -> Tuple[nn.Module, Critic]:
     """
     Create Generator and Critic models for WGAN-GP.
@@ -494,6 +548,11 @@ def get_wgan_models(
         ndf: Base number of critic filters
         device: Device to move models to
         gen_arch: "upsample" (Upsample+Conv, default) or "deconv" (ConvTranspose2d).
+        use_attention: If True, insert a SelfAttention block at the 32x32 stage of
+            both networks. Only honored for gen_arch="upsample"; the legacy
+            ConvTranspose2d Generator does not support attention.
+        critic_norm: "instance" (default) or "layer". LayerNorm matches the
+            original WGAN-GP paper recommendation.
 
     Returns:
         Tuple of (Generator, Critic)
@@ -503,8 +562,11 @@ def get_wgan_models(
             latent_dim=latent_dim,
             embedding_dim=embedding_dim,
             ngf=ngf,
+            use_attention=use_attention,
         )
     elif gen_arch == "deconv":
+        if use_attention:
+            raise ValueError("use_attention=True is not supported with gen_arch='deconv'.")
         generator = Generator(
             latent_dim=latent_dim,
             embedding_dim=embedding_dim,
@@ -516,6 +578,8 @@ def get_wgan_models(
     critic = Critic(
         embedding_dim=embedding_dim,
         ndf=ndf,
+        norm=critic_norm,
+        use_attention=use_attention,
     )
 
     if device is not None:

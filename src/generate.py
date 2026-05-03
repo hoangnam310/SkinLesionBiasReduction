@@ -51,6 +51,10 @@ def parse_args():
                         choices=["auto", "upsample", "deconv"],
                         help="Generator architecture. 'auto' picks from the checkpoint's "
                              "state_dict keys ('up.*' -> upsample, 'deconv.*' -> deconv).")
+    parser.add_argument("--use_attention", type=str, default="auto",
+                        choices=["auto", "true", "false"],
+                        help="Whether the checkpoint was trained with SelfAttention. "
+                             "'auto' detects by looking for '.query.weight' keys.")
     
     # Generation arguments
     parser.add_argument("--output_dir", type=str, default="generated_images",
@@ -134,13 +138,22 @@ def main():
     else:
         gen_arch = args.gen_arch
 
+    if args.use_attention == "auto":
+        use_attention = any(".query.weight" in k for k in gen_state)
+        print(f"Auto-detected use_attention={use_attention}")
+    else:
+        use_attention = args.use_attention == "true"
+
     if gen_arch == "upsample":
         generator = GeneratorUpsample(
             latent_dim=args.latent_dim,
             embedding_dim=args.embedding_dim,
             ngf=args.ngf,
+            use_attention=use_attention,
         )
     else:
+        if use_attention:
+            raise ValueError("use_attention=True is not supported with gen_arch='deconv'.")
         generator = Generator(
             latent_dim=args.latent_dim,
             embedding_dim=args.embedding_dim,
