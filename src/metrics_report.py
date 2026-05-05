@@ -92,9 +92,10 @@ def render_fst_summary(per_fst: Dict) -> str:
     return md_table(headers, rows)
 
 
-def render_per_class_metric(per_fst: Dict, metric_key: str) -> str:
-    """Table with rows = FST, columns = lesion classes, cells = AUROC or AUPRC."""
-    headers = ["Fitzpatrick"] + [f"{c} (n / {metric_key.upper()})" for c in CLASS_ORDER]
+def render_per_class_metric(per_fst: Dict, metric_key: str, label: Optional[str] = None) -> str:
+    """Table with rows = FST, columns = lesion classes, cells = ``n / value``."""
+    col_label = label if label is not None else metric_key.upper()
+    headers = ["Fitzpatrick"] + [f"{c} (n / {col_label})" for c in CLASS_ORDER]
     rows = []
     for i, key in enumerate(FST_KEYS, start=1):
         sub = per_fst.get(key, {})
@@ -191,6 +192,11 @@ def build_report(data: Dict) -> str:
     parts.append("### Per-class AUPRC by Fitzpatrick (one-vs-rest)")
     parts.append("")
     parts.append(render_per_class_metric(per_fst, "auprc"))
+    parts.append("")
+
+    parts.append("### Per-class Accuracy by Fitzpatrick (one-vs-rest)")
+    parts.append("")
+    parts.append(render_per_class_metric(per_fst, "accuracy", label="Accuracy"))
     parts.append("")
 
     if classification:

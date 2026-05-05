@@ -118,6 +118,7 @@ def format_summary(bias: dict) -> str:
         for class_name, cm in sub["per_class"].items():
             lines.append(
                 f"    {class_name:>15}: n={cm['n_samples']:5d} "
+                f"acc={fmt(cm['accuracy'])} "
                 f"AUROC={fmt(cm['auroc'])} AUPRC={fmt(cm['auprc'])}"
             )
     return "\n".join(lines)
