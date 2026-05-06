@@ -47,6 +47,10 @@ NUM_WORKERS=4
 
 # ---- Device ----
 DEVICE=cuda                   # cuda | mps | cpu
+# Lab box has 2x RTX 4090; pick a free one with `nvidia-smi`.
+# Override at the call site: `CUDA_VISIBLE_DEVICES=1 ./run_main.sh`
+: "${CUDA_VISIBLE_DEVICES:=0}"
+export CUDA_VISIBLE_DEVICES
 
 # ---- Resume (optional) ----
 # RESUME_CKPT="outputs/wgan_20260131_230948/checkpoints/final_model.pt"
