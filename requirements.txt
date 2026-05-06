@@ -6,12 +6,13 @@ requests>=2.31.0
 matplotlib>=3.7.0
 Pillow>=10.0.0
 
-# PyTorch (CPU/GPU - install appropriate version for your system)
-# For CUDA: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-# For CPU: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-# For Mac MPS: pip install torch torchvision
-torch>=2.0.0
-torchvision>=0.15.0
+# PyTorch (pinned to CUDA 11.7 build for the lab GPU box; driver caps at CUDA 12.8 but the env was set up against cu117)
+# Install with:
+#   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu117
+# For CPU-only or Mac MPS, install torch/torchvision/torchaudio separately and skip the +cu117 pins below.
+torch==2.0.0+cu117
+torchvision==0.15.1+cu117
+torchaudio==2.0.1+cu117
 
 # Logging and visualization
 tensorboard>=2.13.0
