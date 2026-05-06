@@ -23,6 +23,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
+from torchvision import transforms
 from tqdm import tqdm
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -63,6 +64,9 @@ def parse_args():
     parser.add_argument("--embedding_dim", type=int, default=50)
     parser.add_argument("--ngf", type=int, default=64)
     parser.add_argument("--ndf", type=int, default=64)
+    parser.add_argument("--image_size", type=int, default=64,
+                        help="Generated image side length. Must be a power of 2 >= 32. "
+                             "Common: 64 (fast), 128, 256 (matches downstream classifier).")
     parser.add_argument("--gen_arch", type=str, default="upsample",
                         choices=["upsample", "deconv"])
     parser.add_argument("--use_attention", action=argparse.BooleanOptionalAction, default=True,
@@ -229,19 +233,19 @@ def train_epoch(
     }
 
 
-def save_wgan_checkpoint(generator, critic, optimizer_g, optimizer_c, epoch, metrics, path):
-    torch.save(
-        {
-            "epoch": epoch,
-            "generator_state_dict": generator.state_dict(),
-            "critic_state_dict": critic.state_dict(),
-            "optimizer_g_state_dict": optimizer_g.state_dict(),
-            "optimizer_c_state_dict": optimizer_c.state_dict(),
-            "metrics": metrics,
-            "timestamp": datetime.now().isoformat(),
-        },
-        path,
-    )
+def save_wgan_checkpoint(generator, critic, optimizer_g, optimizer_c, epoch, metrics, path, args=None):
+    payload = {
+        "epoch": epoch,
+        "generator_state_dict": generator.state_dict(),
+        "critic_state_dict": critic.state_dict(),
+        "optimizer_g_state_dict": optimizer_g.state_dict(),
+        "optimizer_c_state_dict": optimizer_c.state_dict(),
+        "metrics": metrics,
+        "timestamp": datetime.now().isoformat(),
+    }
+    if args is not None:
+        payload["args"] = vars(args) if not isinstance(args, dict) else args
+    torch.save(payload, path)
 
 
 def load_wgan_checkpoint(path, generator, critic, optimizer_g, optimizer_c, device):
@@ -275,12 +279,18 @@ def main():
     device = get_device(args.device)
     log_message(log_file, f"Using device: {device}")
 
-    log_message(log_file, "Loading dataset...")
+    log_message(log_file, f"Loading dataset at {args.image_size}x{args.image_size}...")
+    train_transform = transforms.Compose([
+        transforms.Resize((args.image_size, args.image_size)),
+        transforms.ToTensor(),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    ])
     dataloader, _ = get_dataloader(
         csv_path=args.csv_path,
         image_dir=args.image_dir,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
+        transform=train_transform,
     )
 
     log_message(
@@ -297,6 +307,7 @@ def main():
         gen_arch=args.gen_arch,
         use_attention=args.use_attention,
         critic_norm=args.critic_norm,
+        image_size=args.image_size,
     )
     generator.apply(weights_init)
     critic.apply(weights_init)
@@ -369,7 +380,7 @@ def main():
 
         if (epoch + 1) % args.checkpoint_interval == 0:
             ckpt_path = checkpoint_dir / f"checkpoint_epoch_{epoch+1:04d}.pt"
-            save_wgan_checkpoint(generator, critic, optimizer_g, optimizer_c, epoch + 1, metrics, ckpt_path)
+            save_wgan_checkpoint(generator, critic, optimizer_g, optimizer_c, epoch + 1, metrics, ckpt_path, args=args)
             log_message(log_file, f"Saved checkpoint: {ckpt_path}")
 
         if args.fid_interval > 0 and (epoch + 1) % args.fid_interval == 0:
@@ -399,7 +410,7 @@ def main():
             generator.train()
 
     final_path = checkpoint_dir / "final_model.pt"
-    save_wgan_checkpoint(generator, critic, optimizer_g, optimizer_c, args.epochs, metrics, final_path)
+    save_wgan_checkpoint(generator, critic, optimizer_g, optimizer_c, args.epochs, metrics, final_path, args=args)
     log_message(log_file, f"Training complete. Final model saved to {final_path}")
     writer.close()
 

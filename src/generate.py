@@ -55,6 +55,9 @@ def parse_args():
                         choices=["auto", "true", "false"],
                         help="Whether the checkpoint was trained with SelfAttention. "
                              "'auto' detects by looking for '.query.weight' keys.")
+    parser.add_argument("--image_size", type=int, default=0,
+                        help="Generated image side length. 0 = read from checkpoint "
+                             "args (or fall back to 64 for legacy checkpoints).")
     
     # Generation arguments
     parser.add_argument("--output_dir", type=str, default="generated_images",
@@ -144,16 +147,28 @@ def main():
     else:
         use_attention = args.use_attention == "true"
 
+    if args.image_size > 0:
+        image_size = args.image_size
+    else:
+        ckpt_args = checkpoint.get("args") or {}
+        image_size = int(ckpt_args.get("image_size", 64))
+        print(f"Using image_size={image_size} (from checkpoint args; pass --image_size to override)")
+
     if gen_arch == "upsample":
         generator = GeneratorUpsample(
             latent_dim=args.latent_dim,
             embedding_dim=args.embedding_dim,
             ngf=args.ngf,
             use_attention=use_attention,
+            image_size=image_size,
         )
     else:
         if use_attention:
             raise ValueError("use_attention=True is not supported with gen_arch='deconv'.")
+        if image_size != 64:
+            raise ValueError(
+                f"gen_arch='deconv' is hardcoded to 64x64 (got image_size={image_size})."
+            )
         generator = Generator(
             latent_dim=args.latent_dim,
             embedding_dim=args.embedding_dim,

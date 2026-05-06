@@ -1,8 +1,54 @@
+import math
+
 import torch
 import torch.nn as nn
 from typing import Tuple
 
 from data_process import NUM_SKIN_TONES, NUM_LESION_TYPES
+
+
+def _validate_image_size(image_size: int) -> int:
+    """Image size must be a power of 2 in {32, 64, 128, 256, 512}.
+
+    The networks build a 4x4 feature map and up/down-sample by stride 2 each
+    stage, so the resolution must satisfy `image_size = 4 * 2^k` for k>=3.
+    """
+    if image_size < 32 or (image_size & (image_size - 1)) != 0:
+        raise ValueError(
+            f"image_size must be a power of 2 >= 32 (got {image_size})."
+        )
+    return image_size
+
+
+def _generator_stage_channels(image_size: int, ngf: int) -> list[Tuple[int, int]]:
+    """Return [(in_ch, out_ch), ...] for each upsample stage.
+
+    Stage 0 takes the (ngf*16, 4, 4) feature map. Each stage doubles spatial
+    and halves channels (floored at ngf*1). The final stage outputs 3 (RGB).
+    For image_size=64 this reproduces the original ngf*16 -> 8 -> 4 -> 2 -> 3
+    ladder exactly so existing checkpoints stay loadable.
+    """
+    num_stages = int(math.log2(image_size // 4))
+    stages = []
+    in_ch = ngf * 16
+    for stage_idx in range(num_stages):
+        if stage_idx == num_stages - 1:
+            out_ch = 3
+        else:
+            out_mult = max(16 >> (stage_idx + 1), 1)
+            out_ch = ngf * out_mult
+        stages.append((in_ch, out_ch))
+        in_ch = out_ch
+    return stages
+
+
+def _critic_stage_channels(ndf: int, num_stages: int) -> list[int]:
+    """Per-stage output channel count for Critic/Discriminator stride-2 convs.
+
+    Doubles channels each stage capped at ndf*8 (matches the original 64x64
+    ladder ndf -> 2 -> 4 -> 8 and extends safely for deeper nets).
+    """
+    return [ndf * min(1 << i, 8) for i in range(num_stages)]
 
 
 class SelfAttention(nn.Module):
@@ -157,12 +203,14 @@ class GeneratorUpsample(nn.Module):
         num_lesion_types: int = NUM_LESION_TYPES,
         ngf: int = 64,
         use_attention: bool = False,
+        image_size: int = 64,
     ):
         super(GeneratorUpsample, self).__init__()
 
         self.latent_dim = latent_dim
         self.embedding_dim = embedding_dim
         self.use_attention = use_attention
+        self.image_size = _validate_image_size(image_size)
 
         self.skin_tone_embedding = nn.Embedding(num_skin_tones, embedding_dim)
         self.lesion_type_embedding = nn.Embedding(num_lesion_types, embedding_dim)
@@ -184,13 +232,15 @@ class GeneratorUpsample(nn.Module):
                 layers += [nn.BatchNorm2d(out_ch), nn.ReLU(True)]
             return layers
 
-        layers = []
-        layers += up_block(ngf * 16, ngf * 8)   # 4x4 -> 8x8
-        layers += up_block(ngf * 8, ngf * 4)    # 8x8 -> 16x16
-        layers += up_block(ngf * 4, ngf * 2)    # 16x16 -> 32x32
-        if use_attention:
-            layers.append(SelfAttention(ngf * 2))  # attention at 32x32
-        layers += up_block(ngf * 2, 3, final=True)  # 32x32 -> 64x64
+        stage_channels = _generator_stage_channels(self.image_size, ngf)
+        layers: list[nn.Module] = []
+        spatial = 4
+        for stage_idx, (in_ch, out_ch) in enumerate(stage_channels):
+            if use_attention and spatial == 32:
+                layers.append(SelfAttention(in_ch))  # attention at 32x32
+            final = stage_idx == len(stage_channels) - 1
+            layers += up_block(in_ch, out_ch, final=final)
+            spatial *= 2
         layers.append(nn.Tanh())
         self.up = nn.Sequential(*layers)
 
@@ -332,20 +382,22 @@ class Critic(nn.Module):
         ndf: int = 64,
         norm: str = "instance",
         use_attention: bool = False,
+        image_size: int = 64,
     ):
         super(Critic, self).__init__()
 
         self.embedding_dim = embedding_dim
         self.norm = norm
         self.use_attention = use_attention
+        self.image_size = _validate_image_size(image_size)
 
         # Condition embeddings
         self.skin_tone_embedding = nn.Embedding(num_skin_tones, embedding_dim)
         self.lesion_type_embedding = nn.Embedding(num_lesion_types, embedding_dim)
 
-        # Project condition embeddings to spatial representation
-        self.skin_embed_proj = nn.Linear(embedding_dim, 64 * 64)
-        self.lesion_embed_proj = nn.Linear(embedding_dim, 64 * 64)
+        # Project condition embeddings to one spatial channel matching the image.
+        self.skin_embed_proj = nn.Linear(embedding_dim, self.image_size * self.image_size)
+        self.lesion_embed_proj = nn.Linear(embedding_dim, self.image_size * self.image_size)
 
         # No BatchNorm for WGAN-GP (interferes with gradient penalty).
         # Default is InstanceNorm; LayerNorm is the original WGAN-GP paper's
@@ -357,34 +409,25 @@ class Critic(nn.Module):
                 return nn.LayerNorm([channels, spatial, spatial])
             raise ValueError(f"Unknown norm={norm!r}; expected 'instance' or 'layer'.")
 
-        layers = [
-            # Layer 1: 5 x 64 x 64 -> 64 x 32 x 32
-            nn.Conv2d(3 + 2, ndf, 4, 2, 1, bias=True),
-            nn.LeakyReLU(0.2, inplace=True),
-        ]
-        if use_attention:
-            layers.append(SelfAttention(ndf))  # attention at 32x32
+        num_stages = int(math.log2(self.image_size // 4))
+        out_channels_per_stage = _critic_stage_channels(ndf, num_stages)
 
-        layers += [
-            # Layer 2: 64 x 32 x 32 -> 128 x 16 x 16
-            nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=True),
-            norm_layer(ndf * 2, 16),
-            nn.LeakyReLU(0.2, inplace=True),
+        layers: list[nn.Module] = []
+        in_ch = 3 + 2  # RGB + 2 condition channels
+        spatial = self.image_size
+        for stage_idx, out_ch in enumerate(out_channels_per_stage):
+            layers.append(nn.Conv2d(in_ch, out_ch, 4, 2, 1, bias=True))
+            spatial //= 2
+            if stage_idx > 0:
+                # Skip norm on the first conv (matches the original 64x64 design).
+                layers.append(norm_layer(out_ch, spatial))
+            layers.append(nn.LeakyReLU(0.2, inplace=True))
+            if use_attention and spatial == 32:
+                layers.append(SelfAttention(out_ch))  # attention at 32x32
+            in_ch = out_ch
 
-            # Layer 3: 128 x 16 x 16 -> 256 x 8 x 8
-            nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=True),
-            norm_layer(ndf * 4, 8),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            # Layer 4: 256 x 8 x 8 -> 512 x 4 x 4
-            nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=True),
-            norm_layer(ndf * 8, 4),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            # Layer 5: 512 x 4 x 4 -> 1 x 1 x 1
-            # No Sigmoid! Output is unbounded for Wasserstein distance.
-            nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=True),
-        ]
+        # Final 4x4 -> 1x1 conv. No Sigmoid — Wasserstein output is unbounded.
+        layers.append(nn.Conv2d(in_ch, 1, 4, 1, 0, bias=True))
         self.conv = nn.Sequential(*layers)
     
     def forward(
@@ -411,8 +454,12 @@ class Critic(nn.Module):
         lesion_embed = self.lesion_type_embedding(lesion_type)
         
         # Project embeddings to spatial representation
-        skin_channel = self.skin_embed_proj(skin_embed).view(batch_size, 1, 64, 64)
-        lesion_channel = self.lesion_embed_proj(lesion_embed).view(batch_size, 1, 64, 64)
+        skin_channel = self.skin_embed_proj(skin_embed).view(
+            batch_size, 1, self.image_size, self.image_size
+        )
+        lesion_channel = self.lesion_embed_proj(lesion_embed).view(
+            batch_size, 1, self.image_size, self.image_size
+        )
         
         # Concatenate image with condition channels
         x = torch.cat([image, skin_channel, lesion_channel], dim=1)
@@ -537,6 +584,7 @@ def get_wgan_models(
     gen_arch: str = "upsample",
     use_attention: bool = False,
     critic_norm: str = "instance",
+    image_size: int = 64,
 ) -> Tuple[nn.Module, Critic]:
     """
     Create Generator and Critic models for WGAN-GP.
@@ -563,10 +611,16 @@ def get_wgan_models(
             embedding_dim=embedding_dim,
             ngf=ngf,
             use_attention=use_attention,
+            image_size=image_size,
         )
     elif gen_arch == "deconv":
         if use_attention:
             raise ValueError("use_attention=True is not supported with gen_arch='deconv'.")
+        if image_size != 64:
+            raise ValueError(
+                f"gen_arch='deconv' is hardcoded to 64x64; got image_size={image_size}. "
+                "Use gen_arch='upsample' for other resolutions."
+            )
         generator = Generator(
             latent_dim=latent_dim,
             embedding_dim=embedding_dim,
@@ -580,6 +634,7 @@ def get_wgan_models(
         ndf=ndf,
         norm=critic_norm,
         use_attention=use_attention,
+        image_size=image_size,
     )
 
     if device is not None:

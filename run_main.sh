@@ -20,7 +20,7 @@ OUTPUT_DIR="outputs"
 
 # ---- Training ----
 EPOCHS=200
-BATCH_SIZE=64
+BATCH_SIZE=16                # 256x256 is ~16x the memory of 64x64; drop batch from 64 -> 16
 LR_G=1e-4
 LR_C=1e-4
 BETA1=0.0
@@ -30,13 +30,15 @@ LAMBDA_GP=10.0
 
 # ---- Augmentation / architecture ----
 DIFFAUG_POLICY="color,translation,cutout"
-GEN_ARCH="upsample"          # "upsample" (Upsample+Conv) | "deconv" (ConvTranspose2d)
+GEN_ARCH="upsample"          # "upsample" (Upsample+Conv) | "deconv" (ConvTranspose2d, 64x64 only)
 USE_ATTENTION=true           # SAGAN-style SelfAttention at 32x32 in G and Critic
 CRITIC_NORM="layer"          # "instance" | "layer" (Gulrajani 2017's recommendation)
 LATENT_DIM=100
 EMBEDDING_DIM=50
 NGF=64
 NDF=64
+IMAGE_SIZE=256               # power of 2 >= 32. 256 matches the EfficientNetV2 224 baseline
+                             # after the trainer's Resize(224) downscale.
 
 # ---- Logging / eval ----
 CHECKPOINT_INTERVAL=10
@@ -82,6 +84,7 @@ CMD=(
     --embedding_dim "$EMBEDDING_DIM"
     --ngf "$NGF"
     --ndf "$NDF"
+    --image_size "$IMAGE_SIZE"
     --checkpoint_interval "$CHECKPOINT_INTERVAL"
     --sample_interval "$SAMPLE_INTERVAL"
     --fid_interval "$FID_INTERVAL"
