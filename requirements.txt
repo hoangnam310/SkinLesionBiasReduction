@@ -1,18 +1,19 @@
 # Core dependencies
 pandas>=2.0.0
-numpy>=1.24.0
+numpy>=1.24.0,<2.0  # torch 2.1.x was built against NumPy 1.x; 2.x breaks torchvision's to_tensor
 tqdm>=4.65.0
 requests>=2.31.0
 matplotlib>=3.7.0
 Pillow>=10.0.0
 
-# PyTorch (pinned to CUDA 11.7 build for the lab GPU box; driver caps at CUDA 12.8 but the env was set up against cu117)
+# PyTorch (CUDA 11.8 build — required for RTX 4090 / sm_89; cu117 has no Ada kernels.
+# Backward-compatible with the lab box's 12.8 driver.)
 # Install with:
-#   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu117
-# For CPU-only or Mac MPS, install torch/torchvision/torchaudio separately and skip the +cu117 pins below.
-torch==2.0.0+cu117
-torchvision==0.15.1+cu117
-torchaudio==2.0.1+cu117
+#   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu118
+# For CPU-only or Mac MPS, install torch/torchvision/torchaudio separately and skip the +cu118 pins below.
+torch==2.1.2+cu118
+torchvision==0.16.2+cu118
+torchaudio==2.1.2+cu118
 
 # Logging and visualization
 tensorboard>=2.13.0

@@ -46,7 +46,7 @@ FID_NUM_SAMPLES=1000
 NUM_WORKERS=4
 
 # ---- Device ----
-DEVICE=mps                   # cuda | mps | cpu
+DEVICE=cuda                   # cuda | mps | cpu
 
 # ---- Resume (optional) ----
 # RESUME_CKPT="outputs/wgan_20260131_230948/checkpoints/final_model.pt"
