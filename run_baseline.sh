@@ -18,7 +18,7 @@ conda activate gan
 
 # ---- Inputs ----
 CSV_PATH="dataset/fitzpatrick17k_c.csv"
-IMAGE_DIR="dataset/images_center"
+IMAGE_DIR="dataset/images_center_sam2_edge"
 
 # ---- Training (matches run_baseline_upsampled.sh for clean A/B) ----
 IMAGE_SIZE=64

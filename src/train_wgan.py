@@ -77,6 +77,11 @@ def parse_args():
                         help="Critic normalization. 'layer' matches the original WGAN-GP paper.")
 
     parser.add_argument("--output_dir", type=str, default="outputs")
+    parser.add_argument("--run_name", type=str, default=None,
+                        help="Optional label baked into the run folder name "
+                             "(e.g. 'center' or 'center_sam2_edge'). Resulting dir: "
+                             "outputs/wgan_<run_name>_<timestamp>/. If unset, falls back "
+                             "to outputs/wgan_<timestamp>/.")
     parser.add_argument("--checkpoint_interval", type=int, default=10)
     parser.add_argument("--sample_interval", type=int, default=5)
     parser.add_argument("--num_samples", type=int, default=16)
@@ -87,6 +92,11 @@ def parse_args():
 
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--device", type=str, default=None)
+
+    parser.add_argument("--partitions", type=str, nargs="+", default=["train", "val"],
+                        choices=["train", "val", "test"],
+                        help="Which CSV partitions to train the cGAN on. "
+                             "Default: train + val (excludes test to avoid evaluation leakage).")
 
     return parser.parse_args()
 
@@ -263,7 +273,11 @@ def main():
     args = parse_args()
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = Path(args.output_dir) / f"wgan_{timestamp}"
+    if args.run_name:
+        run_dir_name = f"wgan_{args.run_name}_{timestamp}"
+    else:
+        run_dir_name = f"wgan_{timestamp}"
+    output_dir = Path(args.output_dir) / run_dir_name
     checkpoint_dir = output_dir / "checkpoints"
     sample_dir = output_dir / "samples"
     log_dir = output_dir / "logs"
@@ -291,7 +305,9 @@ def main():
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         transform=train_transform,
+        partition=args.partitions,
     )
+    log_message(log_file, f"Training on partitions: {args.partitions} ({len(dataloader.dataset)} images)")
 
     log_message(
         log_file,

@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
-from typing import Callable, Tuple, Optional
+from typing import Callable, List, Tuple, Optional, Union
 import requests
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -47,7 +47,7 @@ class SkinLesionDataset(Dataset):
         filter_skin_tones: Optional[list] = None,
         filter_lesion_types: Optional[list] = None,
         preprocess_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
-        partition: Optional[str] = None,
+        partition: Optional[Union[str, List[str]]] = None,
     ):
         self.image_dir = image_dir
         self.preprocess_fn = preprocess_fn
@@ -64,7 +64,8 @@ class SkinLesionDataset(Dataset):
                     f"CSV {csv_path!r} has no 'partition' column; cannot select "
                     f"partition={partition!r}."
                 )
-            self.df = self.df[self.df["partition"] == partition].reset_index(drop=True)
+            wanted = [partition] if isinstance(partition, str) else list(partition)
+            self.df = self.df[self.df["partition"].isin(wanted)].reset_index(drop=True)
             if len(self.df) == 0:
                 raise ValueError(
                     f"No rows for partition={partition!r} in {csv_path!r}."
@@ -193,7 +194,8 @@ def get_dataloader(
     transform: Optional[transforms.Compose] = None,
     filter_skin_tones: Optional[list] = None,
     filter_lesion_types: Optional[list] = None,
-    pin_memory: bool = True
+    pin_memory: bool = True,
+    partition: Optional[Union[str, List[str]]] = None,
 ) -> Tuple[DataLoader, SkinLesionDataset]:
     """
     Create a DataLoader for the skin lesion dataset.
@@ -217,7 +219,8 @@ def get_dataloader(
         image_dir=image_dir,
         transform=transform,
         filter_skin_tones=filter_skin_tones,
-        filter_lesion_types=filter_lesion_types
+        filter_lesion_types=filter_lesion_types,
+        partition=partition,
     )
     
     dataloader = DataLoader(
