@@ -366,7 +366,7 @@ def process_image(
     Args:
         image: uint8 RGB numpy array of any size.
         mask_fn: callable returning a foreground mask, or None to skip SAM and use
-            an all-ones mask (cv2-only ROI selection).
+            an all-ones mask (no segmentation, ROI selection only).
         strategy: 'edge', 'color', or 'center'. 'center' skips ROI search and
             returns the resize+center-crop output directly.
         seg_size: resolution at which segmentation and ROI search happen.
@@ -409,8 +409,8 @@ def _resize_if_needed(image: np.ndarray, target: int) -> np.ndarray:
 # Picklable preprocess_fn for DataLoader workers
 # ---------------------------------------------------------------------------
 
-class CV2Preprocess:
-    """Picklable preprocessor for the cv2-only path (no SAM model).
+class NoSegPreprocess:
+    """Picklable preprocessor for the no-segmentation path (no SAM model).
 
     Pass an instance of this class as `preprocess_fn` to SkinLesionDataset to apply
     the segmentation-aware pipeline at load time. Backed by `process_image` with
@@ -444,10 +444,10 @@ class CV2Preprocess:
 
 
 if __name__ == "__main__":
-    # Smoke test: synthetic image through the cv2-only pipeline.
+    # Smoke test: synthetic image through the no-segmentation pipeline.
     rng = np.random.default_rng(0)
     fake = (rng.random((480, 640, 3)) * 255).astype(np.uint8)
     out = process_image(fake, mask_fn=None, strategy="color", seg_size=128, out_size=64)
     print("out:", out.shape, out.dtype, "range:", out.min(), out.max())
-    pre = CV2Preprocess(strategy="edge", seg_size=128, out_size=64)
-    print("CV2Preprocess:", pre(fake).shape)
+    pre = NoSegPreprocess(strategy="edge", seg_size=128, out_size=64)
+    print("NoSegPreprocess:", pre(fake).shape)

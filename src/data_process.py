@@ -33,10 +33,10 @@ class SkinLesionDataset(Dataset):
         filter_skin_tones: Optional list of skin tones to include (1-6)
         filter_lesion_types: Optional list of lesion types to include
         preprocess_fn: Optional callable applied to the raw image (uint8 RGB
-            numpy array) before `transform`. Use `segmentation.CV2Preprocess`
-            to run the cv2-only segmentation-aware crop at load time. For
-            SAM-based preprocessing, prefer `src/preprocess_segmentation.py`
-            and point `image_dir` at the resulting directory instead.
+            numpy array) before `transform`. Use `segmentation.NoSegPreprocess`
+            to run the no-segmentation crop at load time. For SAM-based
+            preprocessing, prefer `src/preprocess_segmentation.py` and point
+            `image_dir` at the resulting directory instead.
     """
 
     def __init__(

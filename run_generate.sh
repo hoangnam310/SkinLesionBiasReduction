@@ -20,7 +20,9 @@ eval "$(conda shell.bash hook)"
 conda activate gan
 
 # ---- Checkpoint (edit this) ----
-CHECKPOINT="outputs/<RUN_TIMESTAMP>/checkpoints/final_model.pt"
+# wgan_20260506_144536: image_size=256, gen_arch=upsample, use_attention=True (epoch 50).
+# Generates 256x256 synthetics; classifier resizes 256→224 at load time.
+CHECKPOINT="outputs/wgan_20260506_105317/checkpoints/checkpoint_epoch_0100.pt"
 
 # ---- Output ----
 OUTPUT_DIR="generated_images"
@@ -29,11 +31,11 @@ OUTPUT_DIR="generated_images"
 # Format: "<fitzpatrick_scale> <lesion_type> <num_samples>"
 # Tilt toward minority + clinically important cells.
 CELLS=(
-    "5 benign         300"
-    "5 malignant      400"
+    "5 benign         500"
+    "5 malignant      500"
     "5 non-neoplastic 200"
-    "6 benign         400"
-    "6 malignant      400"
+    "6 benign         500"
+    "6 malignant      500"
     "6 non-neoplastic 200"
 )
 
@@ -49,7 +51,7 @@ NGF=64
 
 # ---- Device ----
 DEVICE=cuda                           # cuda | mps | cpu
-: "${CUDA_VISIBLE_DEVICES:=0}"
+: "${CUDA_VISIBLE_DEVICES:=1}"
 export CUDA_VISIBLE_DEVICES
 
 if [ ! -f "$CHECKPOINT" ]; then

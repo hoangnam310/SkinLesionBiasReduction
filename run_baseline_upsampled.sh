@@ -24,18 +24,17 @@ conda activate gan
 # ---- Inputs ----
 REAL_CSV="dataset/fitzpatrick17k_c.csv"
 SYNTH_CSV="generated_images/generated_metadata.csv"
-IMAGE_DIR="dataset/images"
+IMAGE_DIR="dataset/images_sam2_224_edge"
 COMBINED_CSV="dataset/fitzpatrick17k_c_upsampled.csv"
 
-# ---- Training ----
+# ---- Training (matches notebooks/colab_training.ipynb) ----
 IMAGE_SIZE=64
 BATCH_SIZE=32
-EPOCHS=30
+EPOCHS=40
 LR=1e-4
 WEIGHT_DECAY=1e-4
-DROPOUT=0.3
 SEED=42                  # MUST match run_baseline.sh for a clean A/B
-UNFREEZE_EPOCH=-1        # set e.g. 10 to fine-tune backbone after head warmup
+UNFREEZE_EPOCH=3         # head-only warmup, then full fine-tune
 FINE_TUNE_LR=1e-5
 NUM_WORKERS=4
 
@@ -43,7 +42,7 @@ OUTPUT_DIR="outputs/baseline_efficientnet_upsampled"
 
 # ---- Device ----
 DEVICE=cuda              # cuda | mps | cpu
-: "${CUDA_VISIBLE_DEVICES:=0}"
+: "${CUDA_VISIBLE_DEVICES:=1}"
 export CUDA_VISIBLE_DEVICES
 
 # ---- Step 1: build the merged CSV (idempotent — re-encoded JPEGs are skipped) ----
@@ -67,8 +66,9 @@ python src/train_baseline_efficientnet.py \
     --epochs "$EPOCHS" \
     --lr "$LR" \
     --weight_decay "$WEIGHT_DECAY" \
-    --dropout "$DROPOUT" \
     --seed "$SEED" \
+    --class_weights \
+    --freeze_backbone \
     --unfreeze_epoch "$UNFREEZE_EPOCH" \
     --fine_tune_lr "$FINE_TUNE_LR" \
     --num_workers "$NUM_WORKERS" \
@@ -82,6 +82,9 @@ if [ -n "$LATEST_RUN" ] && [ -f "${LATEST_RUN}checkpoint.pt" ]; then
         --checkpoint "${LATEST_RUN}checkpoint.pt" \
         --split test \
         --device "$DEVICE"
+
+    python src/metrics_report.py \
+        --json "logs/evaluation_metrics.json"
 else
     echo "WARN: could not locate checkpoint under $OUTPUT_DIR for evaluation." >&2
 fi

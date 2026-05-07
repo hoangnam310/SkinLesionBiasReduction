@@ -5,15 +5,15 @@ image referenced by `fitzpatrick17k_cleaned.csv` and writes the results to
 `--image_dir` at `--output_dir` to skip preprocessing entirely.
 
 Backends
-    --backend cv2          # no SAM, runs anywhere (default)
+    --backend none         # no SAM, runs anywhere (default)
     --backend sam2         # needs facebookresearch/sam2 + a checkpoint
     --backend sam3         # needs facebookresearch/sam3 (text-prompted, "skin lesion")
     --backend medsam3      # needs Joey-S-Liu/MedSAM3 (LoRA config + weights)
 
 Examples
-    # cv2-only, fast, runs on a laptop
-    python src/preprocess_segmentation.py --backend cv2 --strategy color \\
-        --output_dir dataset/images_cv2_color
+    # no segmentation, fast, runs on a laptop
+    python src/preprocess_segmentation.py --backend none --strategy color \\
+        --output_dir dataset/images_color
 
     # SAM2 (download checkpoint from sam2 repo first)
     python src/preprocess_segmentation.py --backend sam2 \\
@@ -55,7 +55,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--image_dir", default="dataset/images")
     p.add_argument("--output_dir", required=True)
 
-    p.add_argument("--backend", choices=["cv2", "sam2", "sam3", "medsam3"], default="cv2")
+    p.add_argument("--backend", choices=["none", "sam2", "sam3", "medsam3"], default="none")
     p.add_argument("--strategy", choices=["edge", "color", "center"], default="color")
     p.add_argument("--seg_size", type=int, default=256,
                    help="Resolution at which SAM + ROI selection runs (downscaled to out_size after).")
@@ -86,7 +86,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_mask_fn(args: argparse.Namespace):
-    if args.backend == "cv2":
+    if args.backend == "none":
         return None
     if args.backend == "sam2":
         if not args.sam2_checkpoint:
@@ -138,7 +138,7 @@ def main() -> None:
 
     mask_fn = build_mask_fn(args)
     if mask_fn is None:
-        print("Mask: cv2-only (all-ones fallback)")
+        print("Mask: none (all-ones fallback)")
     else:
         print(f"Mask: {args.backend} loaded")
 
