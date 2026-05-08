@@ -16,3 +16,4 @@ third_party/skin-diff/data_splits/test_*
 checkpoints/
 logs/
 finalfitz17k/
+.DS_Store
