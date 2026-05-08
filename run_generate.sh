@@ -1,41 +1,64 @@
 #!/usr/bin/env bash
-# Generate synthetic skin-lesion images from a trained cGAN/WGAN-GP checkpoint.
+# Generate synthetic skin-lesion images from a trained cGAN/WGAN-GP checkpoint
+# for ONE preprocessing variant. Outputs are kept in per-variant directories so
+# the two pipelines never share state:
 #
-# Per-cell counts: each (Fitzpatrick tone × lesion type) cell can be sized
-# independently via the CELLS array below. Tilt the budget toward the
-# under-represented + clinically important cells (FST 5/6 malignant, benign);
-# keep non-neoplastic small since it is already the majority class.
+#   center           -> generated_images/center/
+#   center_sam2_edge -> generated_images/center_sam2_edge/
+#
+# Per-cell counts: each (Fitzpatrick tone × lesion type) cell is sized below.
+# Tilt the budget toward the under-represented + clinically important cells
+# (FST 5/6 malignant, benign); keep non-neoplastic small.
 #
 # Usage:
-#   1. Set CHECKPOINT below to the .pt file you want to sample from.
-#   2. Edit CELLS to control per-cell sample counts.
-#   3. ./run_generate.sh
+#   ./run_generate.sh center
+#   ./run_generate.sh sam2                  # alias for center_sam2_edge
+#   ./run_generate.sh center_sam2_edge
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Activate conda env
 eval "$(conda shell.bash hook)"
 conda activate gan
 
-# ---- Checkpoint (edit this) ----
-# wgan_20260506_144536: image_size=256, gen_arch=upsample, use_attention=True (epoch 50).
-# Generates 256x256 synthetics; classifier resizes 256→224 at load time.
-CHECKPOINT="outputs/wgan_20260506_105317/checkpoints/checkpoint_epoch_0100.pt"
+# ---- Variant dispatch ----
+VARIANT="${1:-}"
+if [ -z "$VARIANT" ]; then
+    echo "ERROR: missing variant argument." >&2
+    echo "Usage: $0 {center|sam2|center_sam2_edge}" >&2
+    exit 2
+fi
 
-# ---- Output ----
-OUTPUT_DIR="generated_images"
+case "$VARIANT" in
+    center)
+        LABEL="center"
+        # Best center checkpoint (FID 127.00 @ epoch 500).
+        CHECKPOINT="outputs/wgan_center_20260507_020357/checkpoints/checkpoint_epoch_0500.pt"
+        ;;
+    sam2|center_sam2_edge)
+        LABEL="center_sam2_edge"
+        # Best center_sam2_edge checkpoint (FID 176.73 @ epoch 400).
+        CHECKPOINT="outputs/wgan_center_sam2_edge_20260507_032724/checkpoints/checkpoint_epoch_0400.pt"
+        ;;
+    *)
+        echo "ERROR: unknown variant '$VARIANT'." >&2
+        echo "Usage: $0 {center|sam2|center_sam2_edge}" >&2
+        exit 2
+        ;;
+esac
+
+# ---- Output (per-variant) ----
+OUTPUT_DIR="generated_images/${LABEL}"
 
 # ---- Per-cell generation plan ----
 # Format: "<fitzpatrick_scale> <lesion_type> <num_samples>"
-# Tilt toward minority + clinically important cells.
 CELLS=(
-    "5 benign         500"
-    "5 malignant      500"
-    "5 non-neoplastic 200"
-    "6 benign         500"
-    "6 malignant      500"
+    "5 benign         80"
+    "5 malignant      80"
+    "5 non-neoplastic 160"
+    "6 benign         100"
+    "6 malignant      100"
     "6 non-neoplastic 200"
 )
 
@@ -56,7 +79,7 @@ export CUDA_VISIBLE_DEVICES
 
 if [ ! -f "$CHECKPOINT" ]; then
     echo "ERROR: checkpoint not found: $CHECKPOINT" >&2
-    echo "Edit CHECKPOINT in $0 to point at a trained .pt file." >&2
+    echo "Edit the CHECKPOINT path for variant '$LABEL' in $0." >&2
     exit 1
 fi
 
@@ -65,6 +88,11 @@ mkdir -p "$OUTPUT_DIR"
 # Clear any stale combined metadata so a partial rerun cannot leave it
 # inconsistent with the per-cell CSVs we are about to write.
 rm -f "$OUTPUT_DIR/generated_metadata.csv"
+
+echo
+echo "Variant:    $LABEL"
+echo "Checkpoint: $CHECKPOINT"
+echo "Output dir: $OUTPUT_DIR"
 
 TOTAL=0
 for cell in "${CELLS[@]}"; do
@@ -79,6 +107,7 @@ for cell in "${CELLS[@]}"; do
     python src/generate.py \
         --checkpoint "$CHECKPOINT" \
         --output_dir "$OUTPUT_DIR" \
+        --source_label "$LABEL" \
         --num_samples "$N" \
         --target_skin_tones "$ST" \
         --target_lesion_types "$LT" \
@@ -103,7 +132,6 @@ done
 
 # ---- Concatenate per-cell metadata CSVs into a single generated_metadata.csv ----
 python - <<PY
-import glob
 import pandas as pd
 from pathlib import Path
 
@@ -125,4 +153,4 @@ print(combined.groupby(["fitzpatrick_scale", "three_partition_label"]).size().un
 PY
 
 echo
-echo "Done. Total samples requested across cells: $TOTAL"
+echo "Done. Variant=$LABEL, total samples requested across cells: $TOTAL"

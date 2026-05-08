@@ -62,6 +62,10 @@ def parse_args():
     # Generation arguments
     parser.add_argument("--output_dir", type=str, default="generated_images",
                         help="Directory to save generated images")
+    parser.add_argument("--source_label", type=str, default="",
+                        help="Tag identifying which cGAN produced these images "
+                             "(e.g. 'center', 'center_sam2_edge'). Embedded in "
+                             "filenames and recorded in the metadata CSV.")
     parser.add_argument("--num_samples", type=int, default=500,
                         help="Number of samples to generate per class")
     parser.add_argument("--target_skin_tones", type=int, nargs="+", default=[5, 6],
@@ -238,25 +242,27 @@ def main():
                     images = generator(noise, skin_tones_tensor, lesion_types_tensor)
                 
                 # Save images
+                tag = f"_{args.source_label}" if args.source_label else ""
                 for i, img in enumerate(images):
                     img_idx = generated_count + i
-                    filename = f"generated_st{skin_tone}_{lesion_type}_{img_idx:06d}.png"
+                    filename = f"generated{tag}_st{skin_tone}_{lesion_type}_{img_idx:06d}.png"
                     filepath = class_dir / filename
-                    
+
                     # Denormalize and save
                     img_save = (img + 1) / 2
                     img_save = img_save.clamp(0, 1)
-                    
+
                     from torchvision.utils import save_image
                     save_image(img_save, filepath)
-                    
+
                     # Track metadata
                     metadata.append({
                         "filename": filename,
                         "filepath": str(filepath),
                         "fitzpatrick_scale": skin_tone,
                         "three_partition_label": lesion_type,
-                        "is_synthetic": True
+                        "is_synthetic": True,
+                        "source_label": args.source_label,
                     })
                 
                 generated_count += current_batch_size

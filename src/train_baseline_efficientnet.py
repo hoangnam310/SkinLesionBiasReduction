@@ -9,14 +9,16 @@ This script trains a lesion-type classifier on Fitzpatrick17k using:
 
 import argparse
 import json
+import math
 import os
 import random
 import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Tuple
+from typing import Any, Dict, List, Tuple
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -126,6 +128,19 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Do not write checkpoint or metrics files",
     )
+    parser.add_argument(
+        "--k_runs",
+        type=int,
+        default=1,
+        help="Repeat training K times with different seeds and report mean/std "
+             "(not k-fold; same train/val/test split each run). Default: 1",
+    )
+    parser.add_argument(
+        "--save_per_run_checkpoints",
+        action="store_true",
+        help="When --k_runs > 1, save a checkpoint for every run "
+             "(default: only metrics per run + aggregate)",
+    )
     return parser.parse_args()
 
 
@@ -231,6 +246,19 @@ def create_optimizer(model: nn.Module, lr: float, weight_decay: float) -> optim.
     return optim.AdamW(params, lr=lr, weight_decay=weight_decay)
 
 
+def print_train_distribution(dataset: SkinLesionDataset) -> None:
+    table = (
+        dataset.df
+        .groupby(["fitzpatrick_scale", "three_partition_label"])
+        .size()
+        .unstack(fill_value=0)
+        .reindex(columns=["benign", "malignant", "non-neoplastic"], fill_value=0)
+    )
+    print("Train distribution (fitzpatrick_scale x three_partition_label):")
+    print(table.to_string())
+    print(f"Total train samples: {int(table.values.sum())}")
+
+
 def compute_inverse_class_weights(
     dataset: SkinLesionDataset,
     num_classes: int = NUM_LESION_TYPES,
@@ -293,23 +321,23 @@ def run_epoch(
     return Metrics(loss=avg_loss, accuracy=avg_acc)
 
 
-def main() -> None:
-    args = parse_args()
-    set_seed(args.seed)
-
-    device = get_device(args.device)
-    print(f"Using device: {device}")
-    print(f"Image size: {args.image_size}x{args.image_size}")
-
-    train_loader, val_loader, test_loader, train_dataset = build_loaders(args)
-    print(
-        f"Train: {len(train_loader.dataset)} samples ({len(train_loader)} batches), "
-        f"Val: {len(val_loader.dataset)} ({len(val_loader)}), "
-        f"Test: {len(test_loader.dataset)} ({len(test_loader)})"
-    )
+def train_once(
+    args: argparse.Namespace,
+    seed: int,
+    device: torch.device,
+    train_loader: DataLoader,
+    val_loader: DataLoader,
+    test_loader: DataLoader,
+    train_dataset: SkinLesionDataset,
+    run_label: str = "",
+) -> Tuple[Dict[str, Any], Dict[str, torch.Tensor], int, float]:
+    """Train one model end-to-end and return (metrics, best_state, best_epoch, best_val_loss)."""
+    set_seed(seed)
 
     pretrained = args.pretrained and not args.no_pretrained
     freeze_backbone = args.freeze_backbone and not args.no_freeze_backbone
+    if run_label:
+        print(f"\n=== {run_label} (seed={seed}) ===")
     print(f"Pretrained: {pretrained}")
     print(f"Freeze backbone: {freeze_backbone}")
     model = build_model(
@@ -390,44 +418,249 @@ def main() -> None:
             f"(val_loss={best_val_loss:.4f}) for final evaluation."
         )
 
-    if not args.no_save:
-        out = Path(args.output_dir) / datetime.now().strftime("%Y%m%d_%H%M%S")
-        out.mkdir(parents=True, exist_ok=True)
-        eval_batches = args.max_steps if args.max_steps > 0 else 0
-        y_true, y_pred, y_prob, skin_tones = collect_predictions(
-            model, test_loader, device, max_batches=eval_batches
+    eval_batches = args.max_steps if args.max_steps > 0 else 0
+    y_true, y_pred, y_prob, skin_tones = collect_predictions(
+        model, test_loader, device, max_batches=eval_batches
+    )
+    classification_metrics = compute_classification_metrics(y_true, y_pred)
+    bias_metrics = compute_bias_metrics(y_true, y_pred, y_prob, skin_tones)
+    metrics: Dict[str, Any] = {
+        "split": "test",
+        "seed": seed,
+        "best_epoch": best_epoch + 1 if best_epoch >= 0 else None,
+        "best_val_loss": best_val_loss if best_state is not None else None,
+        "classification": classification_metrics,
+        "bias": bias_metrics,
+    }
+    if eval_batches > 0:
+        metrics["_note"] = (
+            f"Metrics computed on first {eval_batches} test batch(es) only "
+            "(because --max_steps > 0). For full-test metrics, train with --max_steps 0."
         )
-        classification_metrics = compute_classification_metrics(y_true, y_pred)
-        bias_metrics = compute_bias_metrics(y_true, y_pred, y_prob, skin_tones)
-        metrics = {
-            "split": "test",
-            "classification": classification_metrics,
-            "bias": bias_metrics,
+    return metrics, (best_state if best_state is not None else model.state_dict()), best_epoch, best_val_loss
+
+
+# Keys we exclude from numeric aggregation (free-form text / structural fields).
+_AGGREGATE_SKIP_KEYS = {
+    "classification_report_str",
+    "_note",
+    "split",
+    "seed",
+}
+
+
+def aggregate_runs(runs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Recursively aggregate numeric leaves across runs into mean/std/min/max/n.
+
+    - Numbers (int/float, excluding bool): mean, std (sample std, ddof=1 when n>1), min, max, n
+    - Lists of numbers (e.g. confusion matrix): elementwise aggregation, same shape
+    - Dicts: recurse on matching keys (intersection across runs)
+    - None: counted as missing; aggregation uses only non-None values
+    - Strings / other: skipped
+    """
+    if not runs:
+        return {}
+
+    def is_number(x: Any) -> bool:
+        return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+    def stats_from_values(vals: List[float]) -> Dict[str, Any]:
+        if not vals:
+            return {"mean": None, "std": None, "min": None, "max": None, "n": 0}
+        arr = np.array(vals, dtype=np.float64)
+        std = float(arr.std(ddof=1)) if arr.size > 1 else 0.0
+        return {
+            "mean": float(arr.mean()),
+            "std": std,
+            "min": float(arr.min()),
+            "max": float(arr.max()),
+            "n": int(arr.size),
         }
-        if eval_batches > 0:
-            metrics["_note"] = (
-                f"Metrics computed on first {eval_batches} test batch(es) only "
-                "(because --max_steps > 0). For full-test metrics, train with --max_steps 0."
-            )
-        metrics_path = out / "metrics.json"
-        with open(metrics_path, "w", encoding="utf-8") as f:
-            json.dump(metrics, f, indent=2)
-        ckpt_path = out / "checkpoint.pt"
-        torch.save(
-            {
-                "model_state_dict": model.state_dict(),
-                "args": vars(args),
-                "metrics": metrics,
-                "best_epoch": best_epoch + 1 if best_epoch >= 0 else None,
-                "best_val_loss": best_val_loss if best_state is not None else None,
-            },
-            ckpt_path,
+
+    def aggregate_values(values: List[Any]) -> Any:
+        non_none = [v for v in values if v is not None]
+        if not non_none:
+            return None
+        first = non_none[0]
+        # Numeric scalar
+        if is_number(first):
+            return stats_from_values([float(v) for v in non_none if is_number(v)])
+        # Dict — recurse on intersection of keys
+        if isinstance(first, dict):
+            dicts = [v for v in non_none if isinstance(v, dict)]
+            if not dicts:
+                return None
+            keys = set(dicts[0].keys())
+            for d in dicts[1:]:
+                keys &= set(d.keys())
+            out: Dict[str, Any] = {}
+            for k in sorted(keys):
+                if k in _AGGREGATE_SKIP_KEYS:
+                    continue
+                child_vals = [d[k] for d in dicts]
+                agg = aggregate_values(child_vals)
+                if agg is not None:
+                    out[k] = agg
+            return out if out else None
+        # List of numbers (e.g. confusion matrix rows) — elementwise aggregate
+        if isinstance(first, list):
+            lists = [v for v in non_none if isinstance(v, list)]
+            if not lists:
+                return None
+            try:
+                arrs = [np.array(l, dtype=np.float64) for l in lists]
+            except (TypeError, ValueError):
+                return None
+            if not arrs:
+                return None
+            shape = arrs[0].shape
+            if any(a.shape != shape for a in arrs):
+                return None
+            stacked = np.stack(arrs, axis=0)
+            std = stacked.std(axis=0, ddof=1) if stacked.shape[0] > 1 else np.zeros(shape)
+            return {
+                "mean": stacked.mean(axis=0).tolist(),
+                "std": std.tolist() if isinstance(std, np.ndarray) else float(std),
+                "min": stacked.min(axis=0).tolist(),
+                "max": stacked.max(axis=0).tolist(),
+                "n": int(stacked.shape[0]),
+            }
+        # Unknown / unsupported leaf type
+        return None
+
+    return aggregate_values(runs) or {}
+
+
+def _summary_lines(metrics: Dict[str, Any]) -> List[str]:
+    """Pull a short list of headline numbers from a single run for printing."""
+    cls = metrics.get("classification", {})
+    bias_global = metrics.get("bias", {}).get("global", {})
+    return [
+        f"  accuracy={cls.get('accuracy')}",
+        f"  balanced_accuracy={cls.get('balanced_accuracy')}",
+        f"  macro_f1={cls.get('macro_f1')}",
+        f"  weighted_f1={cls.get('weighted_f1')}",
+        f"  macro_auroc={bias_global.get('macro_auroc')}",
+        f"  macro_auprc={bias_global.get('macro_auprc')}",
+    ]
+
+
+def _fmt(v: Any) -> str:
+    if v is None:
+        return "n/a"
+    if isinstance(v, float):
+        return f"{v:.4f}"
+    return str(v)
+
+
+def _print_aggregate_headlines(agg: Dict[str, Any]) -> None:
+    cls = agg.get("classification", {})
+    bias_global = agg.get("bias", {}).get("global", {})
+    headline_keys = [
+        ("accuracy", cls.get("accuracy")),
+        ("balanced_accuracy", cls.get("balanced_accuracy")),
+        ("macro_f1", cls.get("macro_f1")),
+        ("weighted_f1", cls.get("weighted_f1")),
+        ("macro_auroc", bias_global.get("macro_auroc")),
+        ("macro_auprc", bias_global.get("macro_auprc")),
+    ]
+    print("Aggregate (mean ± std over runs):")
+    for name, stats in headline_keys:
+        if not isinstance(stats, dict):
+            continue
+        print(
+            f"  {name}: {_fmt(stats.get('mean'))} ± {_fmt(stats.get('std'))} "
+            f"(min={_fmt(stats.get('min'))}, max={_fmt(stats.get('max'))}, n={stats.get('n')})"
         )
-        print(f"Saved checkpoint: {ckpt_path}")
-        print(f"Saved metrics: {metrics_path}")
-        print("Baseline test run complete.")
+
+
+def main() -> None:
+    args = parse_args()
+
+    if args.k_runs < 1:
+        raise ValueError("--k_runs must be >= 1")
+
+    device = get_device(args.device)
+    print(f"Using device: {device}")
+    print(f"Image size: {args.image_size}x{args.image_size}")
+
+    train_loader, val_loader, test_loader, train_dataset = build_loaders(args)
+    print(
+        f"Train: {len(train_loader.dataset)} samples ({len(train_loader)} batches), "
+        f"Val: {len(val_loader.dataset)} ({len(val_loader)}), "
+        f"Test: {len(test_loader.dataset)} ({len(test_loader)})"
+    )
+    print_train_distribution(train_dataset)
+
+    out_root = Path(args.output_dir) / datetime.now().strftime("%Y%m%d_%H%M%S")
+    if not args.no_save:
+        out_root.mkdir(parents=True, exist_ok=True)
+
+    run_metrics: List[Dict[str, Any]] = []
+
+    for i in range(args.k_runs):
+        seed = args.seed + i
+        run_label = f"Run {i + 1}/{args.k_runs}" if args.k_runs > 1 else ""
+        metrics, state, best_epoch, best_val_loss = train_once(
+            args=args,
+            seed=seed,
+            device=device,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            test_loader=test_loader,
+            train_dataset=train_dataset,
+            run_label=run_label,
+        )
+        run_metrics.append(metrics)
+
+        if args.k_runs > 1:
+            print(f"Run {i + 1} test summary:")
+            for line in _summary_lines(metrics):
+                print(line)
+
+        if not args.no_save:
+            run_dir = out_root / f"run_{i + 1:02d}_seed{seed}" if args.k_runs > 1 else out_root
+            run_dir.mkdir(parents=True, exist_ok=True)
+            with open(run_dir / "metrics.json", "w", encoding="utf-8") as f:
+                json.dump(metrics, f, indent=2)
+            should_save_ckpt = args.k_runs == 1 or args.save_per_run_checkpoints
+            if should_save_ckpt:
+                ckpt_path = run_dir / "checkpoint.pt"
+                torch.save(
+                    {
+                        "model_state_dict": state,
+                        "args": vars(args),
+                        "metrics": metrics,
+                        "seed": seed,
+                        "best_epoch": best_epoch + 1 if best_epoch >= 0 else None,
+                        "best_val_loss": best_val_loss if math.isfinite(best_val_loss) else None,
+                    },
+                    ckpt_path,
+                )
+                print(f"Saved checkpoint: {ckpt_path}")
+            print(f"Saved metrics: {run_dir / 'metrics.json'}")
+
+    if args.k_runs > 1:
+        aggregate = aggregate_runs(run_metrics)
+        summary = {
+            "k_runs": args.k_runs,
+            "base_seed": args.seed,
+            "seeds": [args.seed + i for i in range(args.k_runs)],
+            "aggregate": aggregate,
+            "runs": run_metrics,
+        }
+        _print_aggregate_headlines(aggregate)
+        if not args.no_save:
+            summary_path = out_root / "summary.json"
+            with open(summary_path, "w", encoding="utf-8") as f:
+                json.dump(summary, f, indent=2)
+            print(f"Saved aggregate summary: {summary_path}")
+        print(f"Completed {args.k_runs} runs.")
     else:
-        print("Baseline run complete (--no_save: no checkpoint written).")
+        if args.no_save:
+            print("Baseline run complete (--no_save: no checkpoint written).")
+        else:
+            print("Baseline test run complete.")
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ conda activate gan
 
 # ---- Inputs ----
 CSV_PATH="dataset/fitzpatrick17k_c.csv"
-IMAGE_DIR="dataset/images_center_sam2_edge"
+IMAGE_DIR="dataset/images_center"
 
 # ---- Training (matches run_baseline_upsampled.sh for clean A/B) ----
 IMAGE_SIZE=64
@@ -48,14 +48,13 @@ python src/train_baseline_efficientnet.py \
     --lr "$LR" \
     --weight_decay "$WEIGHT_DECAY" \
     --seed "$SEED" \
-    --class_weights \
     --freeze_backbone \
     --unfreeze_epoch "$UNFREEZE_EPOCH" \
     --fine_tune_lr "$FINE_TUNE_LR" \
     --num_workers "$NUM_WORKERS" \
     --output_dir "$OUTPUT_DIR" \
     --device "$DEVICE"
-
+# --class_weights \
 # ---- Step 2: bias-aware eval on the real test split ----
 LATEST_RUN="$(ls -1dt "$OUTPUT_DIR"/*/ 2>/dev/null | head -n1)"
 if [ -n "$LATEST_RUN" ] && [ -f "${LATEST_RUN}checkpoint.pt" ]; then

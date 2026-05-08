@@ -1,11 +1,11 @@
 """Merge GAN-generated images into the partitioned training CSV.
 
-Reads `generated_images/generated_metadata.csv` (produced by `generate.py`),
-re-encodes each synthetic PNG as JPEG into `dataset/images/synth_<id>.jpg`
-so the existing SkinLesionDataset loader (which builds paths as
-`<image_dir>/<md5hash>.jpg`) can find them, and writes a new CSV that
-mirrors `dataset/fitzpatrick17k_c.csv` with synthetic rows appended under
-partition='train'.
+Reads a per-variant `generated_images/<variant>/generated_metadata.csv`
+(produced by `generate.py`), re-encodes each synthetic PNG as JPEG into
+`<image_dir>/synth_<id>.jpg` so the existing SkinLesionDataset loader
+(which builds paths as `<image_dir>/<md5hash>.jpg`) can find them, and
+writes a new CSV that mirrors `dataset/fitzpatrick17k_c.csv` with
+synthetic rows appended under partition='train'.
 
 Real val/test rows are passed through untouched. Synthetics are NEVER
 added to val or test — that would measure GAN quality, not classifier
@@ -30,9 +30,9 @@ def parse_args() -> argparse.Namespace:
                         default="dataset/fitzpatrick17k_c.csv",
                         help="Partitioned real-data CSV (must have md5hash, "
                              "fitzpatrick_scale, three_partition_label, partition)")
-    parser.add_argument("--synth_csv", type=str,
-                        default="generated_images/generated_metadata.csv",
-                        help="Metadata CSV emitted by src/generate.py")
+    parser.add_argument("--synth_csv", type=str, required=True,
+                        help="Metadata CSV emitted by src/generate.py "
+                             "(typically generated_images/<variant>/generated_metadata.csv).")
     parser.add_argument("--image_dir", type=str, default="dataset/images",
                         help="Directory the trainer reads images from. Synthetic "
                              "JPEGs will be written here as synth_<id>.jpg.")

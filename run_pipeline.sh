@@ -98,6 +98,7 @@ for entry in "${VARIANTS[@]}"; do
         python src/generate.py \
             --checkpoint "$CHECKPOINT" \
             --output_dir "$GEN_DIR" \
+            --source_label "$LABEL" \
             --num_samples "$N" \
             --target_skin_tones "$ST" \
             --target_lesion_types "$LT" \

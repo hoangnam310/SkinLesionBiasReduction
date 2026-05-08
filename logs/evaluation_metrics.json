@@ -1,254 +1,254 @@
 {
-  "checkpoint": "outputs/baseline_efficientnet_center/20260507_004746/checkpoint.pt",
+  "checkpoint": "outputs/baseline_efficientnet_upsampled_center_sam2_edge/20260507_123005/checkpoint.pt",
   "split": "test",
   "image_size": 64,
-  "csv_path": "dataset/fitzpatrick17k_c.csv",
+  "csv_path": "dataset/fitzpatrick17k_c_upsampled_center_sam2_edge.csv",
   "image_dir": "dataset/images_center_sam2_edge",
-  "timestamp": "2026-05-07T00:47:52.077687",
+  "timestamp": "2026-05-07T12:30:10.723905",
   "bias": {
     "global": {
       "n_samples": 2211,
-      "top1_accuracy": 0.5725915875169606,
-      "macro_auroc": 0.7022309780107351,
-      "macro_auprc": 0.5055903291822518
+      "top1_accuracy": 0.7557666214382632,
+      "macro_auroc": 0.7209291534597795,
+      "macro_auprc": 0.5171296245531117
     },
     "per_fitzpatrick": {
       "fitzpatrick_1": {
         "n_samples": 455,
-        "accuracy": 0.5582417582417583,
-        "macro_auroc": 0.732368973132131,
-        "macro_auprc": 0.5270602072805705,
+        "accuracy": 0.7846153846153846,
+        "macro_auroc": 0.7426830151405052,
+        "macro_auprc": 0.5553630649202453,
         "per_class": {
           "benign": {
             "n_samples": 55,
-            "accuracy": 0.4909090909090909,
-            "recall": 0.4909090909090909,
-            "precision": 0.18243243243243243,
-            "auroc": 0.6616818181818181,
-            "auprc": 0.22363264910011554
+            "accuracy": 0.14545454545454545,
+            "recall": 0.14545454545454545,
+            "precision": 0.7272727272727273,
+            "auroc": 0.6711818181818182,
+            "auprc": 0.2695842805195825
           },
           "malignant": {
             "n_samples": 75,
-            "accuracy": 0.5866666666666667,
-            "recall": 0.5866666666666667,
-            "precision": 0.4731182795698925,
-            "auroc": 0.797578947368421,
-            "auprc": 0.5108980410663906
+            "accuracy": 0.41333333333333333,
+            "recall": 0.41333333333333333,
+            "precision": 0.7380952380952381,
+            "auroc": 0.8057192982456141,
+            "auprc": 0.5516782648023838
           },
           "non-neoplastic": {
             "n_samples": 325,
-            "accuracy": 0.563076923076923,
-            "recall": 0.563076923076923,
-            "precision": 0.8551401869158879,
-            "auroc": 0.7378461538461539,
-            "auprc": 0.8466499316752054
+            "accuracy": 0.9784615384615385,
+            "recall": 0.9784615384615385,
+            "precision": 0.7910447761194029,
+            "auroc": 0.7511479289940829,
+            "auprc": 0.8448266494387698
           }
         }
       },
       "fitzpatrick_2": {
         "n_samples": 736,
-        "accuracy": 0.5774456521739131,
-        "macro_auroc": 0.7012952707278273,
-        "macro_auprc": 0.514248056327257,
+        "accuracy": 0.7336956521739131,
+        "macro_auroc": 0.7335729374621711,
+        "macro_auprc": 0.5379430988455725,
         "per_class": {
           "benign": {
             "n_samples": 102,
-            "accuracy": 0.3627450980392157,
-            "recall": 0.3627450980392157,
-            "precision": 0.185,
-            "auroc": 0.5856838003340138,
-            "auprc": 0.1824449713007461
+            "accuracy": 0.0392156862745098,
+            "recall": 0.0392156862745098,
+            "precision": 0.2857142857142857,
+            "auroc": 0.6401311313168802,
+            "auprc": 0.2139191996360576
           },
           "malignant": {
             "n_samples": 126,
-            "accuracy": 0.5476190476190477,
-            "recall": 0.5476190476190477,
-            "precision": 0.4726027397260274,
-            "auroc": 0.7803929221962009,
-            "auprc": 0.5154392186742617
+            "accuracy": 0.31746031746031744,
+            "recall": 0.31746031746031744,
+            "precision": 0.7017543859649122,
+            "auroc": 0.8080666146239917,
+            "auprc": 0.548900376010156
           },
           "non-neoplastic": {
             "n_samples": 508,
-            "accuracy": 0.6279527559055118,
-            "recall": 0.6279527559055118,
-            "precision": 0.8179487179487179,
-            "auroc": 0.737809089653267,
-            "auprc": 0.8448599790067632
+            "accuracy": 0.9763779527559056,
+            "recall": 0.9763779527559056,
+            "precision": 0.7458646616541353,
+            "auroc": 0.7525210664456417,
+            "auprc": 0.8510097208905038
           }
         }
       },
       "fitzpatrick_3": {
         "n_samples": 429,
-        "accuracy": 0.5501165501165501,
-        "macro_auroc": 0.6894255134721258,
-        "macro_auprc": 0.515296037335203,
+        "accuracy": 0.7202797202797203,
+        "macro_auroc": 0.7054426775273427,
+        "macro_auprc": 0.5061697743581478,
         "per_class": {
           "benign": {
             "n_samples": 59,
-            "accuracy": 0.3050847457627119,
-            "recall": 0.3050847457627119,
-            "precision": 0.15517241379310345,
-            "auroc": 0.5377462207970682,
-            "auprc": 0.1698486460190396
+            "accuracy": 0.01694915254237288,
+            "recall": 0.01694915254237288,
+            "precision": 0.09090909090909091,
+            "auroc": 0.5669720568025652,
+            "auprc": 0.18313241096100255
           },
           "malignant": {
             "n_samples": 67,
-            "accuracy": 0.582089552238806,
-            "recall": 0.582089552238806,
-            "precision": 0.4020618556701031,
-            "auroc": 0.803331409252082,
-            "auprc": 0.5310322747600037
+            "accuracy": 0.3582089552238806,
+            "recall": 0.3582089552238806,
+            "precision": 0.5853658536585366,
+            "auroc": 0.8123608476952255,
+            "auprc": 0.48352781017337565
           },
           "non-neoplastic": {
             "n_samples": 303,
-            "accuracy": 0.5907590759075908,
-            "recall": 0.5907590759075908,
-            "precision": 0.8287037037037037,
-            "auroc": 0.7271989103672273,
-            "auprc": 0.8450071912265658
+            "accuracy": 0.9372937293729373,
+            "recall": 0.9372937293729373,
+            "precision": 0.753315649867374,
+            "auroc": 0.7369951280842371,
+            "auprc": 0.8518491019400655
           }
         }
       },
       "fitzpatrick_4": {
         "n_samples": 355,
-        "accuracy": 0.5943661971830986,
-        "macro_auroc": 0.6823401935736523,
-        "macro_auprc": 0.48490434007806815,
+        "accuracy": 0.7774647887323943,
+        "macro_auroc": 0.7109145461584486,
+        "macro_auprc": 0.5060486329792903,
         "per_class": {
           "benign": {
             "n_samples": 47,
-            "accuracy": 0.3617021276595745,
-            "recall": 0.3617021276595745,
-            "precision": 0.21794871794871795,
-            "auroc": 0.6424426637192595,
-            "auprc": 0.26016045368692187
+            "accuracy": 0.06382978723404255,
+            "recall": 0.06382978723404255,
+            "precision": 0.75,
+            "auroc": 0.6948051948051949,
+            "auprc": 0.3286063302186828
           },
           "malignant": {
             "n_samples": 35,
-            "accuracy": 0.45714285714285713,
-            "recall": 0.45714285714285713,
-            "precision": 0.23529411764705882,
-            "auroc": 0.7227678571428571,
-            "auprc": 0.3317821152024485
+            "accuracy": 0.2571428571428571,
+            "recall": 0.2571428571428571,
+            "precision": 0.391304347826087,
+            "auroc": 0.7364285714285713,
+            "auprc": 0.31188812128509746
           },
           "non-neoplastic": {
             "n_samples": 273,
-            "accuracy": 0.652014652014652,
-            "recall": 0.652014652014652,
-            "precision": 0.8516746411483254,
-            "auroc": 0.6818100598588404,
-            "auprc": 0.8627704513448342
+            "accuracy": 0.967032967032967,
+            "recall": 0.967032967032967,
+            "precision": 0.8048780487804879,
+            "auroc": 0.7015098722415796,
+            "auprc": 0.8776514474340904
           }
         }
       },
       "fitzpatrick_5": {
         "n_samples": 160,
-        "accuracy": 0.575,
-        "macro_auroc": 0.6853516853516853,
-        "macro_auprc": 0.45962889164333487,
+        "accuracy": 0.79375,
+        "macro_auroc": 0.6615154997507938,
+        "macro_auprc": 0.47164666366649427,
         "per_class": {
           "benign": {
             "n_samples": 17,
-            "accuracy": 0.4117647058823529,
-            "recall": 0.4117647058823529,
-            "precision": 0.18421052631578946,
-            "auroc": 0.6503496503496503,
-            "auprc": 0.1787941380170579
+            "accuracy": 0.0,
+            "recall": 0.0,
+            "precision": 0.0,
+            "auroc": 0.5968737145207733,
+            "auprc": 0.14082935182151873
           },
           "malignant": {
             "n_samples": 17,
-            "accuracy": 0.35294117647058826,
-            "recall": 0.35294117647058826,
-            "precision": 0.21428571428571427,
-            "auroc": 0.7577128753599343,
-            "auprc": 0.3251584435923271
+            "accuracy": 0.23529411764705882,
+            "recall": 0.23529411764705882,
+            "precision": 0.6666666666666666,
+            "auroc": 0.7408473879062114,
+            "auprc": 0.40375196996590196
           },
           "non-neoplastic": {
             "n_samples": 126,
-            "accuracy": 0.626984126984127,
-            "recall": 0.626984126984127,
-            "precision": 0.8404255319148937,
-            "auroc": 0.6479925303454716,
-            "auprc": 0.8749340933206196
+            "accuracy": 0.9761904761904762,
+            "recall": 0.9761904761904762,
+            "precision": 0.803921568627451,
+            "auroc": 0.6468253968253967,
+            "auprc": 0.8703586692120622
           }
         }
       },
       "fitzpatrick_6": {
         "n_samples": 76,
-        "accuracy": 0.631578947368421,
-        "macro_auroc": 0.7188731579907234,
-        "macro_auprc": 0.6158129375276163,
+        "accuracy": 0.8157894736842105,
+        "macro_auroc": 0.6833749102076933,
+        "macro_auprc": 0.5112128255428801,
         "per_class": {
           "benign": {
             "n_samples": 9,
-            "accuracy": 0.4444444444444444,
-            "recall": 0.4444444444444444,
-            "precision": 0.3076923076923077,
-            "auroc": 0.6749585406301825,
-            "auprc": 0.23300763337483044
+            "accuracy": 0.0,
+            "recall": 0.0,
+            "precision": null,
+            "auroc": 0.6334991708126037,
+            "auprc": 0.3140916883697379
           },
           "malignant": {
             "n_samples": 5,
-            "accuracy": 0.8,
-            "recall": 0.8,
-            "precision": 0.2222222222222222,
-            "auroc": 0.867605633802817,
-            "auprc": 0.73
+            "accuracy": 0.0,
+            "recall": 0.0,
+            "precision": null,
+            "auroc": 0.8394366197183099,
+            "auprc": 0.3416161616161616
           },
           "non-neoplastic": {
             "n_samples": 62,
-            "accuracy": 0.6451612903225806,
-            "recall": 0.6451612903225806,
-            "precision": 0.8888888888888888,
-            "auroc": 0.6140552995391705,
-            "auprc": 0.8844311792080184
+            "accuracy": 1.0,
+            "recall": 1.0,
+            "precision": 0.8157894736842105,
+            "auroc": 0.5771889400921659,
+            "auprc": 0.8779306266427407
           }
         }
       }
     }
   },
   "classification": {
-    "accuracy": 0.5725915875169606,
-    "balanced_accuracy": 0.513571130591712,
-    "macro_f1": 0.4720673500560335,
-    "weighted_f1": 0.6110885643954708,
+    "accuracy": 0.7557666214382632,
+    "balanced_accuracy": 0.45212077009577945,
+    "macro_f1": 0.4647129465069256,
+    "weighted_f1": 0.6980665877098576,
     "confusion_matrix": [
       [
-        110,
-        64,
-        115
+        16,
+        28,
+        245
       ],
       [
-        72,
-        178,
-        75
+        8,
+        108,
+        209
       ],
       [
-        411,
-        208,
-        978
+        17,
+        33,
+        1547
       ]
     ],
     "per_class": {
       "benign": {
-        "precision": 0.18549747048903878,
-        "recall": 0.3806228373702422,
-        "f1-score": 0.2494331065759637,
+        "precision": 0.3902439024390244,
+        "recall": 0.05536332179930796,
+        "f1-score": 0.09696969696969697,
         "support": 289
       },
       "malignant": {
-        "precision": 0.39555555555555555,
-        "recall": 0.5476923076923077,
-        "f1-score": 0.4593548387096774,
+        "precision": 0.6390532544378699,
+        "recall": 0.3323076923076923,
+        "f1-score": 0.43724696356275305,
         "support": 325
       },
       "non-neoplastic": {
-        "precision": 0.8373287671232876,
-        "recall": 0.6123982467125861,
-        "f1-score": 0.7074141048824593,
+        "precision": 0.7731134432783608,
+        "recall": 0.9686912961803381,
+        "f1-score": 0.8599221789883269,
         "support": 1597
       }
     },
-    "classification_report_str": "                precision    recall  f1-score   support\n\n        benign       0.19      0.38      0.25       289\n     malignant       0.40      0.55      0.46       325\nnon-neoplastic       0.84      0.61      0.71      1597\n\n      accuracy                           0.57      2211\n     macro avg       0.47      0.51      0.47      2211\n  weighted avg       0.69      0.57      0.61      2211\n"
+    "classification_report_str": "                precision    recall  f1-score   support\n\n        benign       0.39      0.06      0.10       289\n     malignant       0.64      0.33      0.44       325\nnon-neoplastic       0.77      0.97      0.86      1597\n\n      accuracy                           0.76      2211\n     macro avg       0.60      0.45      0.46      2211\n  weighted avg       0.70      0.76      0.70      2211\n"
   }
 }

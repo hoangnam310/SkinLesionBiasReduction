@@ -1,5 +1,6 @@
 dataset/images
 generated_images
+generated_images_1
 outputs
 src/__pycache__
 CLAUDE.md
